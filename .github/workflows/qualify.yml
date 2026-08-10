@@ -1,0 +1,47 @@
+name: Package qualification
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  qualify:
+    name: Standalone package qualification
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out package
+        uses: actions/checkout@v4
+
+      - name: Check out Toka toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: tokalang/toka
+          ref: main
+          path: toka
+
+      - name: Install LLVM 20
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          sudo -E apt-get update -o Acquire::Retries=5
+          sudo apt-get install -y build-essential cmake ninja-build lsb-release software-properties-common
+          wget --timeout=15 --tries=3 https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo -E ./llvm.sh 20
+          sudo apt-get install -y liblld-20-dev lld-20 libpolly-20-dev libzstd-dev libssl-dev
+
+      - name: Build Toka tools
+        run: |
+          set -euo pipefail
+          cmake -S toka -B toka/build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build toka/build --target toka-tools --parallel 2
+
+      - name: Qualify standalone package
+        env:
+          TOKA_ROOT: ${{ github.workspace }}/toka
+        run: python3 tests/qualify_package.py
