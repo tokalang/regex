@@ -113,10 +113,24 @@ def write_consumer(project: Path, dependency: Path) -> None:
         encoding="utf-8",
     )
     (project / "src" / "main.tk").write_text(
-        "import official/regex::{Regex}\n\n"
+        "import core/string::{string}\n"
+        "import std/vec::{Vec}\n"
+        "import official/regex::{Regex, RegexSet}\n\n"
         "fn main() -> i32 {\n"
         '    auto regex = Regex::compile("a(b|c)+d?").unwrap()\n'
         '    if !regex.is_match("ac") { return 1 }\n'
+        '    if regex.captures("ac").unwrap().get(1).unwrap().start_offset() != 1:usize { return 1 }\n'
+        '    auto named = Regex::compile("(?<letter>a)(?P<digit>1)").unwrap().captures("a1").unwrap()\n'
+        '    if named.name("digit").unwrap().start_offset() != 1:usize { return 1 }\n'
+        '    auto comma = Regex::compile(",").unwrap()\n'
+        '    if comma.split("a,b,").len() != 3:usize { return 1 }\n'
+        '    auto replacement = Regex::compile("([a-z]+)-([0-9]+)").unwrap()\n'
+        '    if !replacement.replace_all("id-7", "$2:$1").as_str().equals("7:id") { return 1 }\n'
+        "    auto patterns# = Vec<string>::new()\n"
+        '    patterns#.push(cede string::from("^ac$"))\n'
+        '    patterns#.push(cede string::from("z+"))\n'
+        "    auto set = RegexSet::compile(cede patterns).unwrap()\n"
+        '    if !set.is_match("ac") { return 1 }\n'
         "    return 0\n"
         "}\n",
         encoding="utf-8",

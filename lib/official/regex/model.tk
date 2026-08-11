@@ -1,0 +1,89 @@
+// Public entry module for official/regex.
+
+import core/option::{Option}
+import core/result::{Result}
+import std/vec::{Vec}
+
+pub shape RegexError (
+    position: usize,
+    message: string
+)
+
+pub shape Match (
+    begin_byte: usize,
+    end_byte: usize
+)
+
+// Captures indexes the entire match at 0 and explicit groups from 1 onward.
+// A group that did not participate in the winning alternative is None.
+pub shape Captures (
+    matched: Match,
+    groups: Vec<Option<Match>>,
+    names: Vec<string>
+)
+
+pub shape NfaState (
+    kind: i32,
+    byte: u8,
+    class_id: i32,
+    out: i32,
+    alt: i32
+)
+
+pub shape ByteClass (
+    bits0: u64,
+    bits1: u64,
+    bits2: u64,
+    bits3: u64,
+    negated: bool
+)
+
+pub shape ParsedClass (
+    value: ByteClass,
+    next_byte: usize
+)
+
+pub shape Patch (
+    state_id: i32,
+    edge: i32
+)
+
+pub shape Fragment (
+    entry: i32,
+    exits: Vec<Patch>
+)
+
+pub shape ParsedFragment (
+    fragment: Fragment,
+    next_byte: usize
+)
+
+pub shape ParsedRepetition (
+    minimum: usize,
+    maximum: i32,
+    next_byte: usize
+)
+
+pub shape ActiveState (
+    state_id: i32,
+    begin_byte: usize,
+    end_byte: usize,
+    captures: Vec<i32>
+)
+
+pub shape ThreadSet (
+    active: Vec<ActiveState>,
+    seen: Vec<bool>
+)
+
+pub shape Regex (
+    program: Vec<NfaState>,
+    classes: Vec<ByteClass>,
+    entry: i32,
+    capture_count: usize
+)
+
+pub shape SearchResult (
+    matched: Match,
+    captures: Vec<i32>
+)

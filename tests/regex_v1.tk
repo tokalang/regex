@@ -1,4 +1,6 @@
-import official/regex::{Regex, package_name}
+import core/string::{string}
+import std/vec::{Vec}
+import official/regex::{Regex, RegexSet, package_name}
 
 fn test_literals_dot_and_anchors() {
     auto literal = Regex::compile("ab.c")
@@ -154,8 +156,104 @@ fn test_ascii_character_classes() {
     assert(space.is_match(" \t\n"), "space shorthand must include ASCII whitespace bytes")
 }
 
+fn test_regex_set() {
+    auto patterns# = Vec<string>::new()
+    patterns#.push(cede string::from("^foo$"))
+    patterns#.push(cede string::from("bar+"))
+    patterns#.push(cede string::from("^baz$"))
+    auto compiled = RegexSet::compile(cede patterns)
+    assert(compiled.is_ok(), "every valid RegexSet pattern must compile")
+    auto set = compiled.unwrap()
+    assert(set.len() == 3:usize, "RegexSet must retain every pattern")
+    assert(set.is_match("barrr"), "RegexSet must report any matching pattern")
+    assert(!set.is_match("quux"), "RegexSet must reject input matched by no pattern")
+
+    auto matches = set.matches("barrr")
+    assert(matches.len() == 1:usize && matches.get(0:usize) == 1:usize,
+           "RegexSet must report matching pattern indexes in declaration order")
+
+    auto invalid# = Vec<string>::new()
+    invalid#.push(cede string::from("ok"))
+    invalid#.push(cede string::from("["))
+    assert(RegexSet::compile(cede invalid).is_err(),
+           "RegexSet must preserve pattern compilation errors")
+}
+
+fn test_numbered_captures() {
+    auto nested = Regex::compile("^a(b(c)?)d$").unwrap()
+    auto found = nested.captures("abcd")
+    assert(found.is_some(), "captures must return the leftmost match")
+    auto captures = found.unwrap()
+    assert(captures.len() == 3:usize, "captures must include the whole match and two groups")
+    auto whole = captures.get(0:usize).unwrap()
+    assert(whole.start_offset() == 0:usize && whole.end_offset() == 4:usize,
+           "capture zero must identify the whole match")
+    auto outer = captures.get(1:usize).unwrap()
+    assert(outer.start_offset() == 1:usize && outer.end_offset() == 3:usize,
+           "outer group must retain its byte range")
+    auto inner = captures.get(2:usize).unwrap()
+    assert(inner.start_offset() == 2:usize && inner.end_offset() == 3:usize,
+           "nested group must retain its byte range")
+
+    auto optional = Regex::compile("^a(b)?c$").unwrap().captures("ac").unwrap()
+    assert(optional.get(1:usize).is_none(),
+           "an optional group skipped by the winning path must be absent")
+
+    auto alternation = Regex::compile("^(ab|a)$").unwrap().captures("ab").unwrap()
+    auto selected = alternation.get(1:usize).unwrap()
+    assert(selected.start_offset() == 0:usize && selected.end_offset() == 2:usize,
+           "captures must follow the existing leftmost-first alternation priority")
+
+    auto repeated = Regex::compile("^(a)+$").unwrap().captures("aaa").unwrap()
+    auto last = repeated.get(1:usize).unwrap()
+    assert(last.start_offset() == 2:usize && last.end_offset() == 3:usize,
+           "a repeated group must retain its last successful iteration")
+
+    assert(Regex::compile("(a)").unwrap().captures("z").is_none(),
+           "captures must report no result when the pattern does not match")
+}
+
+fn test_named_captures() {
+    auto regex = Regex::compile("^(?<key>[a-z]+)=(?P<value>[0-9]+)$").unwrap()
+    auto captures = regex.captures("port=443").unwrap()
+    auto key = captures.name("key").unwrap()
+    assert(key.start_offset() == 0:usize && key.end_offset() == 4:usize,
+           "angle-bracket named captures must expose their byte range")
+    auto value = captures.name("value").unwrap()
+    assert(value.start_offset() == 5:usize && value.end_offset() == 8:usize,
+           "P-style named captures must expose their byte range")
+    assert(captures.name("missing").is_none(), "unknown capture names must be absent")
+    assert(Regex::compile("(?<word>a)(?<word>b)").is_err(),
+           "duplicate capture names must be rejected")
+    assert(Regex::compile("(?<1word>a)").is_err(),
+           "capture names must begin with an ASCII identifier character")
+    assert(Regex::compile("(?:a)").is_err(),
+           "unsupported group extensions must not silently become captures")
+}
+
+fn test_split_and_replace_all() {
+    auto comma = Regex::compile(",").unwrap()
+    auto parts = comma.split("alpha,beta,")
+    assert(parts.len() == 3:usize, "split must retain every field including a trailing empty field")
+    assert(parts.get_ref(0:usize).as_str().equals("alpha") &&
+           parts.get_ref(1:usize).as_str().equals("beta") &&
+           parts.get_ref(2:usize).as_str().equals(""),
+           "split fields must own the unmatched input ranges")
+
+    auto words = Regex::compile("([a-z]+)-([0-9]+)").unwrap()
+    auto replaced = words.replace_all("id-42 and port-443", "$2:$1 $$ $0")
+    assert(replaced.as_str().equals("42:id $ id-42 and 443:port $ port-443"),
+           "replace_all must expand whole and numbered captures plus dollar escapes")
+
+    auto optional = Regex::compile("a(b)?").unwrap()
+    assert(optional.replace_all("a ab", "<$1>").as_str().equals("<> <b>"),
+           "unmatched replacement captures must expand to an empty string")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
+    test_named_captures()
+    test_split_and_replace_all()
     test_literals_dot_and_anchors()
     test_escapes_and_errors()
     test_grouping_alternation_and_quantifiers()
@@ -163,5 +261,7 @@ fn main() -> i32 {
     test_find_all()
     test_non_backtracking_adversarial_shape()
     test_ascii_character_classes()
+    test_numbered_captures()
+    test_regex_set()
     return 0
 }

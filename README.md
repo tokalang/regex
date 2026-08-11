@@ -1,6 +1,6 @@
 # `official/regex` v1
 
-Status: **v1 release (`0.1.1`)**.
+Status: **`0.2.0` release candidate (not yet published)**.
 
 `official/regex` is Toka's official regular-expression package. Its package
 identity and public import path are `official/regex`; its manifest short name
@@ -34,6 +34,31 @@ Empty matches are reported once at each search boundary and then advance one
 byte, avoiding an infinite scan. The API owns compiled pattern data and never
 returns a view into a temporary input.
 
+`Regex::captures` returns the whole match at index `0` followed by numbered
+parenthesized groups. Every value is a byte-offset range; a group skipped by
+the winning optional or alternation path is `None`. A repeated group retains
+its last successful iteration, matching the usual RE2/Rust-regex convention.
+Named groups use Rust-compatible `(?<name>...)` or `(?P<name>...)` syntax and
+are read with `captures.name("name")`. Names are unique ASCII identifiers.
+`Regex::split` returns owned fields and retains leading or trailing empty
+fields. `Regex::replace_all` accepts literal template text plus `$$`, `$0`,
+and numbered `$1` through `$99` capture references.
+
+`RegexSet::compile` compiles several independent patterns. Its `is_match`
+method reports whether any member matches, while `matches` returns the matching
+pattern indexes in declaration order. It does not expose match offsets; callers
+that need them should retain and query an individual `Regex`.
+
+## Module layout
+
+The public `official/regex` module remains the only consumer entry point.
+Internally, `model` owns the NFA data shapes, `syntax` parses and compiles a
+pattern, `automata` executes a compiled program and carries capture registers,
+`engine` owns the public `Regex` methods, and `set` provides multi-pattern
+search. New syntax, capture, Unicode, or search-optimization work belongs in
+its respective layer instead
+of extending the public entry module.
+
 ## Release lineage
 
 `0.1.0` was released while this package lived in
@@ -47,12 +72,16 @@ This repository is the canonical source for later versions. `0.1.1` is its
 first standalone release, tagged
 [`v0.1.1`](https://github.com/tokalang/regex/tree/v0.1.1), with a
 `regex-0.1.1.tar.gz` GitHub Release asset and a distinct static-registry record.
+The current source is frozen for the immutable `0.2.0` release; it is not yet
+a registry release. The exact release evidence required to promote it is in
+[the 0.2 release gate](docs/release_0_2.md).
 
 ## v1 syntax profile
 
 - literal bytes and escapes for metacharacters;
 - `.` for one non-LF byte (no dotall flag in v1);
-- concatenation, grouping `(...)`, and alternation `|`;
+- concatenation, numbered grouping `(...)`, named grouping `(?<name>...)` or
+  `(?P<name>...)`, and alternation `|`;
 - postfix `*`, `+`, `?`, and counted repetitions `{m}`, `{m,}`, `{m,n}`;
 - ASCII byte classes such as `[abc]`, `[a-z]`, and `[^0-9]`;
 - `^` and `$` anchors.
@@ -71,10 +100,14 @@ Counted repetitions accept bounds through 1000. Compilation also rejects a
 pattern that would expand beyond 32,768 NFA states; this preserves the v1
 bounded-resource contract even when a short pattern contains a large group.
 
+The planned Unicode profile is intentionally separate from this byte API; its
+dependency and acceptance gates are recorded in
+[the Unicode scope](docs/unicode_scope.md).
+
 ## Explicit non-goals
 
-Backreferences, look-around, recursive patterns, replacement templates,
-capture extraction, and Unicode property classes are outside v1. They either
+Backreferences, look-around, recursive patterns, named replacement references,
+and Unicode property classes are outside v1. They either
 need a separate bounded design or would weaken the package's predictable
 resource contract.
 
@@ -84,6 +117,17 @@ Run the qualification from this package root:
 
 ```text
 python3 tests/qualify_package.py
+```
+
+## Performance baseline
+
+The opt-in benchmark compiles once, then measures matching on a long suffix
+search, the classic `(a|aa)*b` non-backtracking shape, replacement expansion,
+and `RegexSet` search. It reports a median runtime rather than imposing a
+machine-dependent CI threshold.
+
+```text
+TOKA_ROOT=/path/to/toka python3 bench/run_bench.py
 ```
 
 The same command is portable to an extracted standalone checkout. Point it at
