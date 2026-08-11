@@ -40,6 +40,9 @@ the winning optional or alternation path is `None`. A repeated group retains
 its last successful iteration, matching the usual RE2/Rust-regex convention.
 Named groups use Rust-compatible `(?<name>...)` or `(?P<name>...)` syntax and
 are read with `captures.name("name")`. Names are unique ASCII identifiers.
+`Regex::split` returns owned fields and retains leading or trailing empty
+fields. `Regex::replace_all` accepts literal template text plus `$$`, `$0`,
+and numbered `$1` through `$99` capture references.
 
 `RegexSet::compile` compiles several independent patterns. Its `is_match`
 method reports whether any member matches, while `matches` returns the matching
@@ -97,8 +100,8 @@ bounded-resource contract even when a short pattern contains a large group.
 
 ## Explicit non-goals
 
-Backreferences, look-around, recursive patterns, replacement templates, and
-Unicode property classes are outside v1. They either
+Backreferences, look-around, recursive patterns, named replacement references,
+and Unicode property classes are outside v1. They either
 need a separate bounded design or would weaken the package's predictable
 resource contract.
 

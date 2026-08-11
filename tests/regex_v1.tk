@@ -231,9 +231,29 @@ fn test_named_captures() {
            "unsupported group extensions must not silently become captures")
 }
 
+fn test_split_and_replace_all() {
+    auto comma = Regex::compile(",").unwrap()
+    auto parts = comma.split("alpha,beta,")
+    assert(parts.len() == 3:usize, "split must retain every field including a trailing empty field")
+    assert(parts.get_ref(0:usize).as_str().equals("alpha") &&
+           parts.get_ref(1:usize).as_str().equals("beta") &&
+           parts.get_ref(2:usize).as_str().equals(""),
+           "split fields must own the unmatched input ranges")
+
+    auto words = Regex::compile("([a-z]+)-([0-9]+)").unwrap()
+    auto replaced = words.replace_all("id-42 and port-443", "$2:$1 $$ $0")
+    assert(replaced.as_str().equals("42:id $ id-42 and 443:port $ port-443"),
+           "replace_all must expand whole and numbered captures plus dollar escapes")
+
+    auto optional = Regex::compile("a(b)?").unwrap()
+    assert(optional.replace_all("a ab", "<$1>").as_str().equals("<> <b>"),
+           "unmatched replacement captures must expand to an empty string")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
     test_named_captures()
+    test_split_and_replace_all()
     test_literals_dot_and_anchors()
     test_escapes_and_errors()
     test_grouping_alternation_and_quantifiers()

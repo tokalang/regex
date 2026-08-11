@@ -44,6 +44,52 @@ impl Captures {
     }
 }
 
+fn append_input_range(output#: string, input: str, begin: usize, end: usize) {
+    auto index# = begin
+    loop index < end {
+        output#.push_byte_raw(input.byte_at(index) as u8)
+        index = index + 1:usize
+    }
+}
+
+fn append_replacement(output#: string, replacement: str, input: str, captures: Captures) {
+    auto cursor# = 0:usize
+    loop cursor < replacement.len() {
+        auto byte = replacement.byte_at(cursor) as u8
+        if byte != '$' as u8 {
+            output#.push_byte_raw(byte)
+            cursor = cursor + 1:usize
+        } else if cursor + 1 >= replacement.len() {
+            output#.push_byte_raw(byte)
+            cursor = cursor + 1:usize
+        } else {
+            auto next = replacement.byte_at(cursor + 1:usize) as u8
+            if next == '$' as u8 {
+                output#.push_byte_raw('$' as u8)
+                cursor = cursor + 2:usize
+            } else if next >= '0' as u8 && next <= '9' as u8 {
+                auto group# = (next - '0' as u8) as usize
+                cursor = cursor + 2:usize
+                if cursor < replacement.len() {
+                    auto second = replacement.byte_at(cursor) as u8
+                    if second >= '0' as u8 && second <= '9' as u8 {
+                        group = group * 10:usize + (second - '0' as u8) as usize
+                        cursor = cursor + 1:usize
+                    }
+                }
+                auto captured = captures.get(group)
+                if captured.is_some() {
+                    auto range = captured.unwrap()
+                    append_input_range(output, input, range.begin_byte, range.end_byte)
+                }
+            } else {
+                output#.push_byte_raw('$' as u8)
+                cursor = cursor + 1:usize
+            }
+        }
+    }
+}
+
 impl Regex {
     pub fn compile(pattern: str) -> Result<Regex, RegexError> {
         return compile_program(pattern)
@@ -64,8 +110,8 @@ impl Regex {
         return self.find_from(input, 0:usize)
     }
 
-    pub fn captures(self, input: str) -> Option<Captures> {
-        auto found = self.search_from(input, 0:usize)
+    fn captures_from(self, input: str, start_byte: usize) -> Option<Captures> {
+        auto found = self.search_from(input, start_byte)
         if found.is_none() { return Option<Captures>::None }
         auto result = found.unwrap()
         auto groups# = Vec<Option<Match>>::new()
@@ -101,6 +147,10 @@ impl Regex {
         ))
     }
 
+    pub fn captures(self, input: str) -> Option<Captures> {
+        return self.captures_from(input, 0:usize)
+    }
+
     pub fn find_all(self, input: str) -> Vec<Match> {
         auto matches# = Vec<Match>::new()
         auto cursor# = 0:usize
@@ -119,6 +169,54 @@ impl Regex {
             }
         }
         return matches
+    }
+
+    pub fn split(self, input: str) -> Vec<string> {
+        auto parts# = Vec<string>::new()
+        auto search_cursor# = 0:usize
+        auto copied_until# = 0:usize
+        loop search_cursor <= input.len() {
+            auto found = self.find_from(input, search_cursor)
+            if found.is_none() { break }
+            auto matched = found.unwrap()
+            auto part# = string::from("")
+            append_input_range(part, input, copied_until, matched.begin_byte)
+            parts#.push(cede part)
+            copied_until = matched.end_byte
+            if matched.end_byte == matched.begin_byte {
+                if search_cursor == input.len() { break }
+                search_cursor = search_cursor + 1:usize
+            } else {
+                search_cursor = matched.end_byte
+            }
+        }
+        auto tail# = string::from("")
+        append_input_range(tail, input, copied_until, input.len())
+        parts#.push(cede tail)
+        return parts
+    }
+
+    pub fn replace_all(self, input: str, replacement: str) -> string {
+        auto output# = string::from("")
+        auto search_cursor# = 0:usize
+        auto copied_until# = 0:usize
+        loop search_cursor <= input.len() {
+            auto found = self.captures_from(input, search_cursor)
+            if found.is_none() { break }
+            auto captures = found.unwrap()
+            auto matched = captures.whole_match()
+            append_input_range(output, input, copied_until, matched.begin_byte)
+            append_replacement(output, replacement, input, captures)
+            copied_until = matched.end_byte
+            if matched.end_byte == matched.begin_byte {
+                if search_cursor == input.len() { break }
+                search_cursor = search_cursor + 1:usize
+            } else {
+                search_cursor = matched.end_byte
+            }
+        }
+        append_input_range(output, input, copied_until, input.len())
+        return output
     }
 
     pub fn is_match(self, input: str) -> bool {
