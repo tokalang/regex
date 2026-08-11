@@ -2,7 +2,7 @@
 pub const PACKAGE = (
     name = "regex",
     identity = "official/regex",
-    version = "0.2.0-dev.0",
+    version = "0.2.0",
     kind = "library",
     license = "Apache-2.0",
     compiler = "1.0.0-rc.1",
