@@ -38,6 +38,8 @@ returns a view into a temporary input.
 parenthesized groups. Every value is a byte-offset range; a group skipped by
 the winning optional or alternation path is `None`. A repeated group retains
 its last successful iteration, matching the usual RE2/Rust-regex convention.
+Named groups use Rust-compatible `(?<name>...)` or `(?P<name>...)` syntax and
+are read with `captures.name("name")`. Names are unique ASCII identifiers.
 
 `RegexSet::compile` compiles several independent patterns. Its `is_match`
 method reports whether any member matches, while `matches` returns the matching
@@ -67,12 +69,14 @@ This repository is the canonical source for later versions. `0.1.1` is its
 first standalone release, tagged
 [`v0.1.1`](https://github.com/tokalang/regex/tree/v0.1.1), with a
 `regex-0.1.1.tar.gz` GitHub Release asset and a distinct static-registry record.
+The current development line is `0.2.0-dev.0`; it is not a registry release.
 
 ## v1 syntax profile
 
 - literal bytes and escapes for metacharacters;
 - `.` for one non-LF byte (no dotall flag in v1);
-- concatenation, grouping `(...)`, and alternation `|`;
+- concatenation, numbered grouping `(...)`, named grouping `(?<name>...)` or
+  `(?P<name>...)`, and alternation `|`;
 - postfix `*`, `+`, `?`, and counted repetitions `{m}`, `{m,}`, `{m,n}`;
 - ASCII byte classes such as `[abc]`, `[a-z]`, and `[^0-9]`;
 - `^` and `$` anchors.
@@ -93,8 +97,8 @@ bounded-resource contract even when a short pattern contains a large group.
 
 ## Explicit non-goals
 
-Backreferences, look-around, recursive patterns, replacement templates, named
-capture groups, and Unicode property classes are outside v1. They either
+Backreferences, look-around, recursive patterns, replacement templates, and
+Unicode property classes are outside v1. They either
 need a separate bounded design or would weaken the package's predictable
 resource contract.
 

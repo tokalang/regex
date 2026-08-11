@@ -120,6 +120,8 @@ def write_consumer(project: Path, dependency: Path) -> None:
         '    auto regex = Regex::compile("a(b|c)+d?").unwrap()\n'
         '    if !regex.is_match("ac") { return 1 }\n'
         '    if regex.captures("ac").unwrap().get(1).unwrap().start_offset() != 1:usize { return 1 }\n'
+        '    auto named = Regex::compile("(?<letter>a)(?P<digit>1)").unwrap().captures("a1").unwrap()\n'
+        '    if named.name("digit").unwrap().start_offset() != 1:usize { return 1 }\n'
         "    auto patterns# = Vec<string>::new()\n"
         '    patterns#.push(cede string::from("^ac$"))\n'
         '    patterns#.push(cede string::from("z+"))\n'

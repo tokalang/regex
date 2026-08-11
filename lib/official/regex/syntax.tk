@@ -17,6 +17,7 @@ const STATE_MATCH: i32 = 5:i32
 const STATE_CLASS: i32 = 6:i32
 const STATE_CAPTURE_START: i32 = 7:i32
 const STATE_CAPTURE_END: i32 = 8:i32
+const STATE_CAPTURE_NAME: i32 = 9:i32
 
 const EDGE_OUT: i32 = 0:i32
 const EDGE_ALT: i32 = 1:i32
@@ -262,6 +263,95 @@ fn capture_group_count(pattern: str) -> usize {
     return capture_group_at(pattern, pattern.len())
 }
 
+fn is_capture_name_start(byte: u8) -> bool {
+    return byte >= 'a' as u8 && byte <= 'z' as u8 ||
+           byte >= 'A' as u8 && byte <= 'Z' as u8 || byte == '_' as u8
+}
+
+fn is_capture_name_byte(byte: u8) -> bool {
+    return is_capture_name_start(byte) || byte >= '0' as u8 && byte <= '9' as u8
+}
+
+// Named groups follow the two forms accepted by Rust regex: (?<name>...) and
+// (?P<name>...). This returns the first byte in the group body.
+fn named_group_body_start(pattern: str, opening_position: usize) -> Result<usize, RegexError> {
+    auto body = opening_position + 1:usize
+    if body >= pattern.len() || pattern.byte_at(body) as u8 != '?' as u8 {
+        return Result<usize, RegexError>::Ok(body)
+    }
+    auto cursor# = body + 1:usize
+    if cursor < pattern.len() && pattern.byte_at(cursor) as u8 == 'P' as u8 {
+        cursor = cursor + 1:usize
+    }
+    if cursor >= pattern.len() || pattern.byte_at(cursor) as u8 != '<' as u8 {
+        return Result<usize, RegexError>::Err(error(body, "unsupported regex group extension"))
+    }
+    auto name_start = cursor + 1:usize
+    if name_start >= pattern.len() || !is_capture_name_start(pattern.byte_at(name_start) as u8) {
+        return Result<usize, RegexError>::Err(error(name_start, "invalid regex capture name"))
+    }
+    cursor = name_start + 1:usize
+    loop cursor < pattern.len() && pattern.byte_at(cursor) as u8 != '>' as u8 {
+        if !is_capture_name_byte(pattern.byte_at(cursor) as u8) {
+            return Result<usize, RegexError>::Err(error(cursor, "invalid regex capture name"))
+        }
+        cursor = cursor + 1:usize
+    }
+    if cursor >= pattern.len() {
+        return Result<usize, RegexError>::Err(error(name_start, "missing closing '>' in regex capture name"))
+    }
+    return Result<usize, RegexError>::Ok(cursor + 1:usize)
+}
+
+fn capture_names(pattern: str) -> Result<Vec<string>, RegexError> {
+    auto names# = Vec<string>::new()
+    auto cursor# = 0:usize
+    auto in_class# = false
+    loop cursor < pattern.len() {
+        auto byte = pattern.byte_at(cursor) as u8
+        if byte == '\\' as u8 {
+            cursor = cursor + 1:usize
+            if cursor < pattern.len() { cursor = cursor + 1:usize }
+        } else if in_class {
+            if byte == ']' as u8 { in_class = false }
+            cursor = cursor + 1:usize
+        } else if byte == '[' as u8 {
+            in_class = true
+            cursor = cursor + 1:usize
+        } else if byte != '(' as u8 {
+            cursor = cursor + 1:usize
+        } else {
+            auto body = named_group_body_start(pattern, cursor)
+            if body.is_err() { return Result<Vec<string>, RegexError>::Err(body.unwrap_err()) }
+            auto body_start = body.unwrap()
+            if cursor + 1:usize < pattern.len() && pattern.byte_at(cursor + 1:usize) as u8 == '?' as u8 {
+                auto name_end = body_start - 1:usize
+                auto name_start# = cursor + 3:usize
+                if pattern.byte_at(cursor + 2:usize) as u8 == 'P' as u8 { name_start = name_start + 1:usize }
+                auto name# = string::from("")
+                auto name_cursor# = name_start
+                loop name_cursor < name_end {
+                    name#.push_byte_raw(pattern.byte_at(name_cursor) as u8)
+                    name_cursor = name_cursor + 1:usize
+                }
+                auto index# = 0:usize
+                loop index < names.len() {
+                    auto *existing = names.get_ref(index)
+                    if existing.as_str().equals(name.as_str()) {
+                        return Result<Vec<string>, RegexError>::Err(error(cursor, "duplicate regex capture name"))
+                    }
+                    index = index + 1:usize
+                }
+                names#.push(cede name)
+            } else {
+                names#.push(cede string::from(""))
+            }
+            cursor = cursor + 1:usize
+        }
+    }
+    return Result<Vec<string>, RegexError>::Ok(cede names)
+}
+
 fn parse_class(pattern: str, position: usize) -> Result<ParsedClass, RegexError> {
     auto cursor# = position + 1:usize
     auto negated# = false
@@ -338,7 +428,9 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
         if depth >= MAX_GROUP_NESTING {
             return Result<ParsedFragment, RegexError>::Err(error(position, "regex group nesting limit exceeded"))
         }
-        auto nested = parse_expression(pattern, position + 1:usize, depth + 1:usize, program, classes)
+        auto body = named_group_body_start(pattern, position)
+        if body.is_err() { return Result<ParsedFragment, RegexError>::Err(body.unwrap_err()) }
+        auto nested = parse_expression(pattern, body.unwrap(), depth + 1:usize, program, classes)
         if nested.is_err() { return Result<ParsedFragment, RegexError>::Err(nested.unwrap_err()) }
         auto parsed = nested.unwrap()
         if parsed.next_byte >= pattern.len() || pattern.byte_at(parsed.next_byte) as u8 != ')' as u8 {
@@ -598,6 +690,8 @@ pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
         return Result<Regex, RegexError>::Err(error(
         MAX_PATTERN_BYTES, "regex pattern exceeds v1 size limit"))
     }
+    auto names = capture_names(pattern)
+    if names.is_err() { return Result<Regex, RegexError>::Err(names.unwrap_err()) }
     auto program# = Vec<NfaState>::new()
     auto classes# = Vec<ByteClass>::new()
     auto parsed = parse_expression(pattern, 0:usize, 0:usize, program, classes)
@@ -608,10 +702,22 @@ pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
     }
     auto match_state = new_state(program, STATE_MATCH, 0:u8, NO_STATE, NO_STATE, NO_STATE)
     patch_all(program, fragment.fragment.exits, match_state)
+    auto capture_names = names.unwrap()
+    auto name_index# = 0:usize
+    loop name_index < capture_names.len() {
+        auto *name = capture_names.get_ref(name_index)
+        auto byte_index# = 0:usize
+        loop byte_index < name.len() {
+            new_state(program, STATE_CAPTURE_NAME, name.as_str().byte_at(byte_index) as u8,
+                      name_index as i32, NO_STATE, NO_STATE)
+            byte_index = byte_index + 1:usize
+        }
+        name_index = name_index + 1:usize
+    }
     return Result<Regex, RegexError>::Ok(Regex(
         program = cede program,
         classes = cede classes,
         entry = fragment.fragment.entry,
         capture_count = capture_group_count(pattern)
     ))
-    }
+}

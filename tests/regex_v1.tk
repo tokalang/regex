@@ -213,8 +213,27 @@ fn test_numbered_captures() {
            "captures must report no result when the pattern does not match")
 }
 
+fn test_named_captures() {
+    auto regex = Regex::compile("^(?<key>[a-z]+)=(?P<value>[0-9]+)$").unwrap()
+    auto captures = regex.captures("port=443").unwrap()
+    auto key = captures.name("key").unwrap()
+    assert(key.start_offset() == 0:usize && key.end_offset() == 4:usize,
+           "angle-bracket named captures must expose their byte range")
+    auto value = captures.name("value").unwrap()
+    assert(value.start_offset() == 5:usize && value.end_offset() == 8:usize,
+           "P-style named captures must expose their byte range")
+    assert(captures.name("missing").is_none(), "unknown capture names must be absent")
+    assert(Regex::compile("(?<word>a)(?<word>b)").is_err(),
+           "duplicate capture names must be rejected")
+    assert(Regex::compile("(?<1word>a)").is_err(),
+           "capture names must begin with an ASCII identifier character")
+    assert(Regex::compile("(?:a)").is_err(),
+           "unsupported group extensions must not silently become captures")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
+    test_named_captures()
     test_literals_dot_and_anchors()
     test_escapes_and_errors()
     test_grouping_alternation_and_quantifiers()
@@ -222,7 +241,7 @@ fn main() -> i32 {
     test_find_all()
     test_non_backtracking_adversarial_shape()
     test_ascii_character_classes()
-    test_regex_set()
     test_numbered_captures()
+    test_regex_set()
     return 0
 }
