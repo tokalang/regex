@@ -113,10 +113,17 @@ def write_consumer(project: Path, dependency: Path) -> None:
         encoding="utf-8",
     )
     (project / "src" / "main.tk").write_text(
-        "import official/regex::{Regex}\n\n"
+        "import core/string::{string}\n"
+        "import std/vec::{Vec}\n"
+        "import official/regex::{Regex, RegexSet}\n\n"
         "fn main() -> i32 {\n"
         '    auto regex = Regex::compile("a(b|c)+d?").unwrap()\n'
         '    if !regex.is_match("ac") { return 1 }\n'
+        "    auto patterns# = Vec<string>::new()\n"
+        '    patterns#.push(cede string::from("^ac$"))\n'
+        '    patterns#.push(cede string::from("z+"))\n'
+        "    auto set = RegexSet::compile(cede patterns).unwrap()\n"
+        '    if !set.is_match("ac") { return 1 }\n'
         "    return 0\n"
         "}\n",
         encoding="utf-8",

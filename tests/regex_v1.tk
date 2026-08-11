@@ -1,4 +1,6 @@
-import official/regex::{Regex, package_name}
+import core/string::{string}
+import std/vec::{Vec}
+import official/regex::{Regex, RegexSet, package_name}
 
 fn test_literals_dot_and_anchors() {
     auto literal = Regex::compile("ab.c")
@@ -154,6 +156,29 @@ fn test_ascii_character_classes() {
     assert(space.is_match(" \t\n"), "space shorthand must include ASCII whitespace bytes")
 }
 
+fn test_regex_set() {
+    auto patterns# = Vec<string>::new()
+    patterns#.push(cede string::from("^foo$"))
+    patterns#.push(cede string::from("bar+"))
+    patterns#.push(cede string::from("^baz$"))
+    auto compiled = RegexSet::compile(cede patterns)
+    assert(compiled.is_ok(), "every valid RegexSet pattern must compile")
+    auto set = compiled.unwrap()
+    assert(set.len() == 3:usize, "RegexSet must retain every pattern")
+    assert(set.is_match("barrr"), "RegexSet must report any matching pattern")
+    assert(!set.is_match("quux"), "RegexSet must reject input matched by no pattern")
+
+    auto matches = set.matches("barrr")
+    assert(matches.len() == 1:usize && matches.get(0:usize) == 1:usize,
+           "RegexSet must report matching pattern indexes in declaration order")
+
+    auto invalid# = Vec<string>::new()
+    invalid#.push(cede string::from("ok"))
+    invalid#.push(cede string::from("["))
+    assert(RegexSet::compile(cede invalid).is_err(),
+           "RegexSet must preserve pattern compilation errors")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
     test_literals_dot_and_anchors()
@@ -163,5 +188,6 @@ fn main() -> i32 {
     test_find_all()
     test_non_backtracking_adversarial_shape()
     test_ascii_character_classes()
+    test_regex_set()
     return 0
 }

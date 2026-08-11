@@ -1,0 +1,50 @@
+import core/result::{Result}
+import std/vec::{Vec}
+import official/regex/engine::{Regex, RegexError}
+
+// RegexSet compiles several independent bounded regex programs and reports
+// the indexes that match an input. It deliberately exposes no match offsets:
+// callers needing offsets can query the selected Regex directly.
+pub shape RegexSet (
+    regexes: Vec<Regex>
+)
+
+impl RegexSet {
+    pub fn compile(patterns: Vec<string>) -> Result<RegexSet, RegexError> {
+        auto regexes# = Vec<Regex>::new()
+        auto index# = 0:usize
+        loop index < patterns.len() {
+            auto pattern = patterns.get(index)
+            auto compiled = Regex::compile(pattern.as_str())
+            if compiled.is_err() {
+                return Result<RegexSet, RegexError>::Err(compiled.unwrap_err())
+            }
+            regexes#.push(compiled.unwrap())
+            index = index + 1:usize
+        }
+        return Result<RegexSet, RegexError>::Ok(RegexSet(regexes = cede regexes))
+    }
+
+    pub fn len(self) -> usize { return self.regexes.len() }
+
+    pub fn is_match(self, input: str) -> bool {
+        auto index# = 0:usize
+        loop index < self.regexes.len() {
+            if self.regexes.get(index).is_match(input) { return true }
+            index = index + 1:usize
+        }
+        return false
+    }
+
+    pub fn matches(self, input: str) -> Vec<usize> {
+        auto matched# = Vec<usize>::new()
+        auto index# = 0:usize
+        loop index < self.regexes.len() {
+            if self.regexes.get(index).is_match(input) {
+                matched#.push(index)
+            }
+            index = index + 1:usize
+        }
+        return matched
+    }
+}

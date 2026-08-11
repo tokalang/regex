@@ -34,6 +34,11 @@ Empty matches are reported once at each search boundary and then advance one
 byte, avoiding an infinite scan. The API owns compiled pattern data and never
 returns a view into a temporary input.
 
+`RegexSet::compile` compiles several independent patterns. Its `is_match`
+method reports whether any member matches, while `matches` returns the matching
+pattern indexes in declaration order. It does not expose match offsets; callers
+that need them should retain and query an individual `Regex`.
+
 ## Release lineage
 
 `0.1.0` was released while this package lived in
