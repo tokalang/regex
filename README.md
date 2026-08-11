@@ -73,6 +73,8 @@ first standalone release, tagged
 [`v0.1.1`](https://github.com/tokalang/regex/tree/v0.1.1), with a
 `regex-0.1.1.tar.gz` GitHub Release asset and a distinct static-registry record.
 The current development line is `0.2.0-dev.0`; it is not a registry release.
+The exact release evidence required to promote it is in
+[the 0.2 release gate](docs/release_0_2.md).
 
 ## v1 syntax profile
 

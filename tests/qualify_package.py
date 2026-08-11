@@ -122,6 +122,10 @@ def write_consumer(project: Path, dependency: Path) -> None:
         '    if regex.captures("ac").unwrap().get(1).unwrap().start_offset() != 1:usize { return 1 }\n'
         '    auto named = Regex::compile("(?<letter>a)(?P<digit>1)").unwrap().captures("a1").unwrap()\n'
         '    if named.name("digit").unwrap().start_offset() != 1:usize { return 1 }\n'
+        '    auto comma = Regex::compile(",").unwrap()\n'
+        '    if comma.split("a,b,").len() != 3:usize { return 1 }\n'
+        '    auto replacement = Regex::compile("([a-z]+)-([0-9]+)").unwrap()\n'
+        '    if !replacement.replace_all("id-7", "$2:$1").as_str().equals("7:id") { return 1 }\n'
         "    auto patterns# = Vec<string>::new()\n"
         '    patterns#.push(cede string::from("^ac$"))\n'
         '    patterns#.push(cede string::from("z+"))\n'
