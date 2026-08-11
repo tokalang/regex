@@ -98,6 +98,10 @@ Counted repetitions accept bounds through 1000. Compilation also rejects a
 pattern that would expand beyond 32,768 NFA states; this preserves the v1
 bounded-resource contract even when a short pattern contains a large group.
 
+The planned Unicode profile is intentionally separate from this byte API; its
+dependency and acceptance gates are recorded in
+[the Unicode scope](docs/unicode_scope.md).
+
 ## Explicit non-goals
 
 Backreferences, look-around, recursive patterns, named replacement references,
