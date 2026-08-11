@@ -39,6 +39,15 @@ method reports whether any member matches, while `matches` returns the matching
 pattern indexes in declaration order. It does not expose match offsets; callers
 that need them should retain and query an individual `Regex`.
 
+## Module layout
+
+The public `official/regex` module remains the only consumer entry point.
+Internally, `model` owns the NFA data shapes, `syntax` parses and compiles a
+pattern, `automata` executes a compiled program, `engine` owns the public
+`Regex` methods, and `set` provides multi-pattern search. New syntax, capture,
+Unicode, or search-optimization work belongs in its respective layer instead
+of extending the public entry module.
+
 ## Release lineage
 
 `0.1.0` was released while this package lived in

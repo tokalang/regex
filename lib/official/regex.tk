@@ -1,6 +1,5 @@
 // Stable public entry module for official/regex.
 //
-// The implementation lives in focused internal modules so future syntax,
-// automata, and API additions do not change the public import path.
+// Internal modules separate the NFA model, pattern compiler, and matcher.
 pub import official/regex/engine::{Match, Regex, RegexError, package_name}
 pub import official/regex/set::{RegexSet}
