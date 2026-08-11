@@ -14,6 +14,13 @@ pub shape Match (
     end_byte: usize
 )
 
+// Captures indexes the entire match at 0 and explicit groups from 1 onward.
+// A group that did not participate in the winning alternative is None.
+pub shape Captures (
+    matched: Match,
+    groups: Vec<Option<Match>>
+)
+
 pub shape NfaState (
     kind: i32,
     byte: u8,
@@ -59,7 +66,8 @@ pub shape ParsedRepetition (
 pub shape ActiveState (
     state_id: i32,
     begin_byte: usize,
-    end_byte: usize
+    end_byte: usize,
+    captures: Vec<i32>
 )
 
 pub shape ThreadSet (
@@ -70,5 +78,11 @@ pub shape ThreadSet (
 pub shape Regex (
     program: Vec<NfaState>,
     classes: Vec<ByteClass>,
-    entry: i32
+    entry: i32,
+    capture_count: usize
+)
+
+pub shape SearchResult (
+    matched: Match,
+    captures: Vec<i32>
 )

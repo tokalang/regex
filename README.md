@@ -34,6 +34,11 @@ Empty matches are reported once at each search boundary and then advance one
 byte, avoiding an infinite scan. The API owns compiled pattern data and never
 returns a view into a temporary input.
 
+`Regex::captures` returns the whole match at index `0` followed by numbered
+parenthesized groups. Every value is a byte-offset range; a group skipped by
+the winning optional or alternation path is `None`. A repeated group retains
+its last successful iteration, matching the usual RE2/Rust-regex convention.
+
 `RegexSet::compile` compiles several independent patterns. Its `is_match`
 method reports whether any member matches, while `matches` returns the matching
 pattern indexes in declaration order. It does not expose match offsets; callers
@@ -43,9 +48,10 @@ that need them should retain and query an individual `Regex`.
 
 The public `official/regex` module remains the only consumer entry point.
 Internally, `model` owns the NFA data shapes, `syntax` parses and compiles a
-pattern, `automata` executes a compiled program, `engine` owns the public
-`Regex` methods, and `set` provides multi-pattern search. New syntax, capture,
-Unicode, or search-optimization work belongs in its respective layer instead
+pattern, `automata` executes a compiled program and carries capture registers,
+`engine` owns the public `Regex` methods, and `set` provides multi-pattern
+search. New syntax, capture, Unicode, or search-optimization work belongs in
+its respective layer instead
 of extending the public entry module.
 
 ## Release lineage
@@ -87,8 +93,8 @@ bounded-resource contract even when a short pattern contains a large group.
 
 ## Explicit non-goals
 
-Backreferences, look-around, recursive patterns, replacement templates,
-capture extraction, and Unicode property classes are outside v1. They either
+Backreferences, look-around, recursive patterns, replacement templates, named
+capture groups, and Unicode property classes are outside v1. They either
 need a separate bounded design or would weaken the package's predictable
 resource contract.
 

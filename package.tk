@@ -15,8 +15,8 @@ pub const PACKAGE = (
 pub const AI_CONTRACT = (
     schema = "toka-official-package-v1",
     summary = "Bounded, non-backtracking byte regular-expression matching.",
-    capabilities = ("compile RE2 regular subset", "grouping alternation quantifiers classes", "search bytes without exponential backtracking", "match multiple patterns with RegexSet"),
-    non_goals = ("backreferences", "look-around", "captures", "Unicode grapheme semantics"),
+    capabilities = ("compile RE2 regular subset", "grouping alternation quantifiers classes", "search bytes without exponential backtracking", "numbered capture byte ranges", "match multiple patterns with RegexSet"),
+    non_goals = ("backreferences", "look-around", "named captures", "Unicode grapheme semantics"),
     safety = ("pattern errors are structured; matcher state is bounded by pattern size"),
     qualification = ("python3 tests/qualify_package.py")
 )

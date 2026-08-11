@@ -179,6 +179,40 @@ fn test_regex_set() {
            "RegexSet must preserve pattern compilation errors")
 }
 
+fn test_numbered_captures() {
+    auto nested = Regex::compile("^a(b(c)?)d$").unwrap()
+    auto found = nested.captures("abcd")
+    assert(found.is_some(), "captures must return the leftmost match")
+    auto captures = found.unwrap()
+    assert(captures.len() == 3:usize, "captures must include the whole match and two groups")
+    auto whole = captures.get(0:usize).unwrap()
+    assert(whole.start_offset() == 0:usize && whole.end_offset() == 4:usize,
+           "capture zero must identify the whole match")
+    auto outer = captures.get(1:usize).unwrap()
+    assert(outer.start_offset() == 1:usize && outer.end_offset() == 3:usize,
+           "outer group must retain its byte range")
+    auto inner = captures.get(2:usize).unwrap()
+    assert(inner.start_offset() == 2:usize && inner.end_offset() == 3:usize,
+           "nested group must retain its byte range")
+
+    auto optional = Regex::compile("^a(b)?c$").unwrap().captures("ac").unwrap()
+    assert(optional.get(1:usize).is_none(),
+           "an optional group skipped by the winning path must be absent")
+
+    auto alternation = Regex::compile("^(ab|a)$").unwrap().captures("ab").unwrap()
+    auto selected = alternation.get(1:usize).unwrap()
+    assert(selected.start_offset() == 0:usize && selected.end_offset() == 2:usize,
+           "captures must follow the existing leftmost-first alternation priority")
+
+    auto repeated = Regex::compile("^(a)+$").unwrap().captures("aaa").unwrap()
+    auto last = repeated.get(1:usize).unwrap()
+    assert(last.start_offset() == 2:usize && last.end_offset() == 3:usize,
+           "a repeated group must retain its last successful iteration")
+
+    assert(Regex::compile("(a)").unwrap().captures("z").is_none(),
+           "captures must report no result when the pattern does not match")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
     test_literals_dot_and_anchors()
@@ -189,5 +223,6 @@ fn main() -> i32 {
     test_non_backtracking_adversarial_shape()
     test_ascii_character_classes()
     test_regex_set()
+    test_numbered_captures()
     return 0
 }

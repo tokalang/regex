@@ -1,9 +1,10 @@
 import core/option::{Option}
 import core/result::{Result}
 import std/vec::{Vec}
-pub import official/regex/model::{Match, Regex, RegexError}
+pub import official/regex/model::{Captures, Match, Regex, RegexError}
+import official/regex/model::{SearchResult}
 import official/regex/syntax::{compile_program}
-import official/regex/automata::{find_program}
+import official/regex/automata::{search_program}
 
 impl RegexError {
     pub fn position(self) -> usize { return self.position }
@@ -17,17 +18,61 @@ impl Match {
     pub fn end_offset(self) -> usize { return self.end_byte }
 }
 
+impl Captures {
+    pub fn len(self) -> usize { return self.groups.len() + 1:usize }
+
+    pub fn whole_match(self) -> Match { return self.matched }
+
+    pub fn get(self, index: usize) -> Option<Match> {
+        if index == 0:usize { return Option<Match>::Some(self.matched) }
+        if index > self.groups.len() { return Option<Match>::None }
+        return self.groups.get(index - 1:usize)
+    }
+}
+
 impl Regex {
     pub fn compile(pattern: str) -> Result<Regex, RegexError> {
         return compile_program(pattern)
     }
 
+    fn search_from(self, input: str, start_byte: usize) -> Option<SearchResult> {
+        return search_program(self.program, self.classes, self.entry, self.capture_count,
+                              input, start_byte)
+    }
+
     fn find_from(self, input: str, start_byte: usize) -> Option<Match> {
-        return find_program(self.program, self.classes, self.entry, input, start_byte)
+        auto found = self.search_from(input, start_byte)
+        if found.is_none() { return Option<Match>::None }
+        return Option<Match>::Some(found.unwrap().matched)
     }
 
     pub fn find(self, input: str) -> Option<Match> {
         return self.find_from(input, 0:usize)
+    }
+
+    pub fn captures(self, input: str) -> Option<Captures> {
+        auto found = self.search_from(input, 0:usize)
+        if found.is_none() { return Option<Captures>::None }
+        auto result = found.unwrap()
+        auto groups# = Vec<Option<Match>>::new()
+        auto index# = 0:usize
+        loop index < self.capture_count {
+            auto start = result.captures.get(index * 2:usize)
+            auto end = result.captures.get(index * 2:usize + 1:usize)
+            if start < 0:i32 || end < 0:i32 {
+                groups#.push(Option<Match>::None)
+            } else {
+                groups#.push(Option<Match>::Some(Match(
+                    begin_byte = start as usize,
+                    end_byte = end as usize
+                )))
+            }
+            index = index + 1:usize
+        }
+        return Option<Captures>::Some(Captures(
+            matched = result.matched,
+            groups = cede groups
+        ))
     }
 
     pub fn find_all(self, input: str) -> Vec<Match> {

@@ -15,6 +15,8 @@ const STATE_START: i32 = 3:i32
 const STATE_END: i32 = 4:i32
 const STATE_MATCH: i32 = 5:i32
 const STATE_CLASS: i32 = 6:i32
+const STATE_CAPTURE_START: i32 = 7:i32
+const STATE_CAPTURE_END: i32 = 8:i32
 
 const EDGE_OUT: i32 = 0:i32
 const EDGE_ALT: i32 = 1:i32
@@ -140,6 +142,17 @@ fn class_fragment(program#: Vec<NfaState>, classes#: Vec<ByteClass>, cede member
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_OUT))
 }
 
+fn capture_fragment(program#: Vec<NfaState>, capture_id: usize, cede inner: Fragment) -> Fragment {
+    auto inner_entry = inner.entry
+    auto inner_exits = cede inner.exits
+    auto entry = new_state(program, STATE_CAPTURE_START, 0:u8, capture_id as i32,
+                           inner_entry, NO_STATE)
+    auto exit = new_state(program, STATE_CAPTURE_END, 0:u8, capture_id as i32,
+                          NO_STATE, NO_STATE)
+    patch_all(program, inner_exits, exit)
+    return Fragment(entry = entry, exits = one_patch(exit, EDGE_OUT))
+}
+
 fn concat_fragments(program#: Vec<NfaState>, cede left: Fragment, cede right: Fragment) -> Fragment {
     auto entry = left.entry
     auto exits = cede left.exits
@@ -218,6 +231,35 @@ fn hex_digit(byte: u8) -> i32 {
 fn escaped_next(position: usize, escaped: u8) -> usize {
     if escaped == 'x' as u8 { return position + 3:usize }
     return position + 1:usize
+}
+
+// Numbering belongs to the written pattern, not a particular NFA copy. This
+// keeps a group inside {m,n} at one stable capture index across repetitions.
+fn capture_group_at(pattern: str, opening_position: usize) -> usize {
+    auto cursor# = 0:usize
+    auto count# = 0:usize
+    auto in_class# = false
+    loop cursor < opening_position {
+        auto byte = pattern.byte_at(cursor) as u8
+        if byte == '\\' as u8 {
+            cursor = cursor + 1:usize
+            if cursor < opening_position { cursor = cursor + 1:usize }
+        } else if in_class {
+            if byte == ']' as u8 { in_class = false }
+            cursor = cursor + 1:usize
+        } else if byte == '[' as u8 {
+            in_class = true
+            cursor = cursor + 1:usize
+        } else {
+            if byte == '(' as u8 { count = count + 1:usize }
+            cursor = cursor + 1:usize
+        }
+    }
+    return count
+}
+
+fn capture_group_count(pattern: str) -> usize {
+    return capture_group_at(pattern, pattern.len())
 }
 
 fn parse_class(pattern: str, position: usize) -> Result<ParsedClass, RegexError> {
@@ -302,8 +344,9 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
         if parsed.next_byte >= pattern.len() || pattern.byte_at(parsed.next_byte) as u8 != ')' as u8 {
             return Result<ParsedFragment, RegexError>::Err(error(parsed.next_byte, "missing closing ')'"))
         }
+        auto capture_id = capture_group_at(pattern, position)
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = cede parsed.fragment,
+            fragment = capture_fragment(program, capture_id, cede parsed.fragment),
             next_byte = parsed.next_byte + 1:usize
         ))
     }
@@ -568,6 +611,7 @@ pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
     return Result<Regex, RegexError>::Ok(Regex(
         program = cede program,
         classes = cede classes,
-        entry = fragment.fragment.entry
+        entry = fragment.fragment.entry,
+        capture_count = capture_group_count(pattern)
     ))
     }
