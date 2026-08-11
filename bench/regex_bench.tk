@@ -1,0 +1,44 @@
+import core/string::{string}
+import std/vec::{Vec}
+import official/regex::{Regex, RegexSet}
+
+fn repeated(byte: u8, count: usize) -> string {
+    auto output# = string::from("")
+    auto index# = 0:usize
+    loop index < count {
+        output#.push_byte_raw(byte)
+        index = index + 1:usize
+    }
+    return output
+}
+
+fn main() -> i32 {
+    auto long_input = repeated('a' as u8, 65535:usize)
+    long_input#.push_byte_raw('z' as u8)
+    auto suffix = Regex::compile("az$").unwrap()
+    auto adversarial = Regex::compile("(a|aa)*b").unwrap()
+
+    auto replace_input# = string::from("")
+    auto replace_index# = 0:usize
+    loop replace_index < 512:usize {
+        replace_input#.push_str("word-123 ")
+        replace_index = replace_index + 1:usize
+    }
+    auto replacement = Regex::compile("([a-z]+)-([0-9]+)").unwrap()
+
+    auto patterns# = Vec<string>::new()
+    patterns#.push(cede string::from("not-present"))
+    patterns#.push(cede string::from("az$"))
+    patterns#.push(cede string::from("[0-9]+"))
+    auto set = RegexSet::compile(cede patterns).unwrap()
+
+    auto round# = 0:usize
+    loop round < 20:usize {
+        if !suffix.is_match(long_input.as_str()) { return 1 }
+        if adversarial.is_match(long_input.as_str()) { return 2 }
+        if replacement.replace_all(replace_input.as_str(), "$2:$1").len() == 0:usize { return 3 }
+        if !set.is_match(long_input.as_str()) { return 4 }
+        round = round + 1:usize
+    }
+    return 0
+}

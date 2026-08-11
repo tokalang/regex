@@ -113,6 +113,17 @@ Run the qualification from this package root:
 python3 tests/qualify_package.py
 ```
 
+## Performance baseline
+
+The opt-in benchmark compiles once, then measures matching on a long suffix
+search, the classic `(a|aa)*b` non-backtracking shape, replacement expansion,
+and `RegexSet` search. It reports a median runtime rather than imposing a
+machine-dependent CI threshold.
+
+```text
+TOKA_ROOT=/path/to/toka python3 bench/run_bench.py
+```
+
 The same command is portable to an extracted standalone checkout. Point it at
 either a built Toka source checkout:
 
