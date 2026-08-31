@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  TOKA_VERSION: v1.0.0-rc.9
+
 jobs:
   qualify:
     name: Standalone package qualification (${{ matrix.name }})
@@ -19,53 +22,43 @@ jobs:
         include:
           - name: linux-x64
             runner: ubuntu-22.04
+            asset: toka-v1.0.0-rc.9-linux-x64.tar.gz
+            sha256: 432b27087a89d2519e1a50726ed31f6556e4ed130e3d91c2315713c1cd099097
           - name: macos-arm64
             runner: macos-15
+            asset: toka-v1.0.0-rc.9-macos-arm64.tar.gz
+            sha256: d13622ffad63db32479db78095bf66b96b4976c0d15aa6c30257e676d66f64ac
     steps:
       - name: Check out package
         uses: actions/checkout@v4
 
-      - name: Check out Toka toolchain
-        uses: actions/checkout@v4
-        with:
-          repository: tokalang/toka
-          ref: main
-          path: toka
-
-      - name: Install LLVM 20 (Linux)
+      - name: Install Linux runtime dependencies
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
           sudo -E apt-get update -o Acquire::Retries=5
-          sudo apt-get install -y build-essential cmake ninja-build lsb-release software-properties-common
-          wget --timeout=15 --tries=3 https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo -E ./llvm.sh 20
-          sudo apt-get install -y liblld-20-dev lld-20 libpolly-20-dev libzstd-dev libssl-dev
+          sudo apt-get install -y libssl3 zlib1g libzstd1 libstdc++6 libgcc-s1
 
-      - name: Install LLVM 20 (macOS)
+      - name: Install macOS runtime dependencies
         if: runner.os == 'macOS'
-        run: |
-          set -euo pipefail
-          brew install llvm@20 lld@20 zstd openssl@3
-          echo "$(brew --prefix llvm@20)/bin" >> "$GITHUB_PATH"
-          echo "LLVM_DIR=$(brew --prefix llvm@20)/lib/cmake/llvm" >> "$GITHUB_ENV"
-          echo "LLD_DIR=$(brew --prefix lld@20)/lib/cmake/lld" >> "$GITHUB_ENV"
-          echo "ZSTD_LIBRARY=$(brew --prefix zstd)/lib/libzstd.dylib" >> "$GITHUB_ENV"
-          echo "OPENSSL_ROOT_DIR=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+        run: brew install lld@20 zstd openssl@3
 
-      - name: Build Toka tools
+      - name: Install locked Toka SDK
         run: |
           set -euo pipefail
-          cmake -S toka -B toka/build -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            ${LLVM_DIR:+-DLLVM_DIR="$LLVM_DIR"} \
-            ${LLD_DIR:+-DLLD_DIR="$LLD_DIR"} \
-            ${ZSTD_LIBRARY:+-DZSTD_LIBRARY="$ZSTD_LIBRARY"} \
-            ${OPENSSL_ROOT_DIR:+-DOPENSSL_ROOT_DIR="$OPENSSL_ROOT_DIR"}
-          cmake --build toka/build --target toka-tools --parallel 2
+          archive="$RUNNER_TEMP/${{ matrix.asset }}"
+          curl --fail --location --retry 3 --output "$archive" \
+            "https://github.com/tokalang/toka/releases/download/$TOKA_VERSION/${{ matrix.asset }}"
+          echo "${{ matrix.sha256 }}  $archive" | shasum -a 256 --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          sdk="$RUNNER_TEMP/${{ matrix.asset }}"
+          sdk="${sdk%.tar.gz}"
+          "$sdk/bin/toka" --version | grep -F '1.0.0-rc.9'
+          "$sdk/bin/tokac" --version | grep -F '1.0.0-rc.9'
+          echo "TOKA=$sdk/bin/toka" >> "$GITHUB_ENV"
+          echo "TOKAC=$sdk/bin/tokac" >> "$GITHUB_ENV"
+          echo "TOKA_LIB=$sdk/lib" >> "$GITHUB_ENV"
 
       - name: Qualify standalone package
-        env:
-          TOKA_ROOT: ${{ github.workspace }}/toka
         run: python3 tests/qualify_package.py
