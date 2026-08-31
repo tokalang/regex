@@ -34,7 +34,7 @@ impl Captures {
     pub fn name(self, name: str) -> Option<Match> {
         auto index# = 0:usize
         loop index < self.names.len() {
-            auto *candidate = self.names.get_ref(index)
+            auto &candidate = self.names.borrow(index)
             if candidate.as_str().equals(name) {
                 return self.groups.get(index)
             }
@@ -131,7 +131,7 @@ impl Regex {
             auto name# = string::from("")
             auto state_index# = 0:usize
             loop state_index < self.program.len() {
-                auto *state = self.program.get_ref(state_index)
+                auto &state = self.program.borrow(state_index)
                 if state.kind == STATE_CAPTURE_NAME && state.class_id == index as i32 {
                     name#.push_byte_raw(state.byte)
                 }

@@ -235,9 +235,9 @@ fn test_split_and_replace_all() {
     auto comma = Regex::compile(",").unwrap()
     auto parts = comma.split("alpha,beta,")
     assert(parts.len() == 3:usize, "split must retain every field including a trailing empty field")
-    assert(parts.get_ref(0:usize).as_str().equals("alpha") &&
-           parts.get_ref(1:usize).as_str().equals("beta") &&
-           parts.get_ref(2:usize).as_str().equals(""),
+    assert(parts.borrow(0:usize).as_str().equals("alpha") &&
+           parts.borrow(1:usize).as_str().equals("beta") &&
+           parts.borrow(2:usize).as_str().equals(""),
            "split fields must own the unmatched input ranges")
 
     auto words = Regex::compile("([a-z]+)-([0-9]+)").unwrap()

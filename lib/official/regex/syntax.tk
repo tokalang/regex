@@ -336,7 +336,7 @@ fn capture_names(pattern: str) -> Result<Vec<string>, RegexError> {
                 }
                 auto index# = 0:usize
                 loop index < names.len() {
-                    auto *existing = names.get_ref(index)
+                    auto &existing = names.borrow(index)
                     if existing.as_str().equals(name.as_str()) {
                         return Result<Vec<string>, RegexError>::Err(error(cursor, "duplicate regex capture name"))
                     }
@@ -705,7 +705,7 @@ pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
     auto capture_names = names.unwrap()
     auto name_index# = 0:usize
     loop name_index < capture_names.len() {
-        auto *name = capture_names.get_ref(name_index)
+        auto &name = capture_names.borrow(name_index)
         auto byte_index# = 0:usize
         loop byte_index < name.len() {
             new_state(program, STATE_CAPTURE_NAME, name.as_str().byte_at(byte_index) as u8,

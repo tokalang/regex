@@ -14,7 +14,7 @@ impl RegexSet {
         auto regexes# = Vec<Regex>::new()
         auto index# = 0:usize
         loop index < patterns.len() {
-            auto *pattern = patterns.get_ref(index)
+            auto &pattern = patterns.borrow(index)
             auto compiled = Regex::compile(pattern.as_str())
             if compiled.is_err() {
                 return Result<RegexSet, RegexError>::Err(compiled.unwrap_err())
@@ -30,7 +30,7 @@ impl RegexSet {
     pub fn is_match(self, input: str) -> bool {
         auto index# = 0:usize
         loop index < self.regexes.len() {
-            auto *regex = self.regexes.get_ref(index)
+            auto &regex = self.regexes.borrow(index)
             if regex.is_match(input) { return true }
             index = index + 1:usize
         }
@@ -41,7 +41,7 @@ impl RegexSet {
         auto matched# = Vec<usize>::new()
         auto index# = 0:usize
         loop index < self.regexes.len() {
-            auto *regex = self.regexes.get_ref(index)
+            auto &regex = self.regexes.borrow(index)
             if regex.is_match(input) {
                 matched#.push(index)
             }

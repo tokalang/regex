@@ -114,7 +114,7 @@ fn advance_threads(program: Vec<NfaState>, classes: Vec<ByteClass>,
     auto current = cede active
     auto index# = 0:usize
     loop index < current.len() {
-        auto *thread = current.get_ref(index)
+        auto &thread = current.borrow(index)
         auto state = program.get(thread.state_id as usize)
         if state.kind == STATE_MATCH {
             if !next.seen.get(thread.state_id as usize) {
@@ -156,7 +156,7 @@ fn first_match(program: Vec<NfaState>, active: Vec<ActiveState>, at_end: bool) -
     // Threads retain Thompson construction order. A lower-priority branch may
     // reach MATCH while an earlier branch at the same input position remains
     // viable, so only the leading thread may establish a leftmost-first match.
-    auto *candidate = active.get_ref(0:usize)
+    auto &candidate = active.borrow(0:usize)
     if program.get(candidate.state_id as usize).kind == STATE_MATCH {
         return Option<SearchResult>::Some(SearchResult(
             matched = Match(begin_byte = candidate.begin_byte, end_byte = candidate.end_byte),
@@ -166,7 +166,7 @@ fn first_match(program: Vec<NfaState>, active: Vec<ActiveState>, at_end: bool) -
     if at_end {
         auto index# = 1:usize
         loop index < active.len() {
-            auto *terminal = active.get_ref(index)
+            auto &terminal = active.borrow(index)
             if program.get(terminal.state_id as usize).kind == STATE_MATCH {
                 return Option<SearchResult>::Some(SearchResult(
                     matched = Match(begin_byte = terminal.begin_byte, end_byte = terminal.end_byte),
