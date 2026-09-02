@@ -1,6 +1,6 @@
 # `official/regex` v1
 
-Status: **`0.3.0` (Toka `1.0.0-rc.11` release candidate)**.
+Status: **`0.3.0` released for Toka `1.0.0-rc.11`**.
 
 `official/regex` is Toka's official regular-expression package. Its package
 identity and public import path are `official/regex`; its manifest short name
