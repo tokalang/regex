@@ -301,6 +301,11 @@ fn test_options_and_analysis() {
     assert(!w_re.is_match("foobar"), "w rejects foobar")
     assert(!w_re.is_match("xfoo"), "w rejects xfoo")
 
+    auto w_dash = Regex::compile_with_options("-", w_opts).unwrap()
+    assert(w_dash.is_match("-"), "w matches isolated dash")
+    assert(w_dash.is_match(".-."), "w matches dash surrounded by dots")
+    assert(!w_dash.is_match("a-b"), "w rejects dash between word chars")
+
     // Test line_regexp (-x) with a|abc
     auto x_opts = RegexOptions(ignore_ascii_case = false, word_regexp = false, line_regexp = true)
     auto x_re = Regex::compile_with_options("a|abc", x_opts).unwrap()

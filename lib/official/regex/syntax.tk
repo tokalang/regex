@@ -32,7 +32,8 @@ const STATE_CLASS: i32 = 6:i32
 const STATE_CAPTURE_START: i32 = 7:i32
 const STATE_CAPTURE_END: i32 = 8:i32
 const STATE_CAPTURE_NAME: i32 = 9:i32
-const STATE_WORD_BOUNDARY: i32 = 10:i32
+const STATE_WORD_START: i32 = 10:i32
+const STATE_WORD_END: i32 = 11:i32
 
 const EDGE_OUT: i32 = 0:i32
 const EDGE_ALT: i32 = 1:i32
@@ -856,8 +857,8 @@ pub fn compile_program_with_options(pattern: str, options: RegexOptions) -> Resu
 
     // Wrap with word boundary assertion if word_regexp is enabled
     if options.word_regexp {
-        auto wb_start = state_fragment(program#, STATE_WORD_BOUNDARY, 0:u8)
-        auto wb_end = state_fragment(program#, STATE_WORD_BOUNDARY, 0:u8)
+        auto wb_start = state_fragment(program#, STATE_WORD_START, 0:u8)
+        auto wb_end = state_fragment(program#, STATE_WORD_END, 0:u8)
         fragment = concat_fragments(program#, cede wb_start, cede fragment)
         fragment = concat_fragments(program#, cede fragment, cede wb_end)
     }
