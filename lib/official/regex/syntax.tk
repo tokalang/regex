@@ -1,7 +1,21 @@
 import core/option::{Option}
 import core/result::{Result}
 import std/vec::{Vec}
-import official/regex/model::{ByteClass, Fragment, NfaState, ParsedClass, ParsedFragment, ParsedRepetition, Patch, Regex, RegexError}
+import official/regex/model::{
+    AnalysisInfo,
+    ByteClass,
+    CompiledRegex,
+    Fragment,
+    NfaState,
+    ParsedClass,
+    ParsedFragment,
+    ParsedRepetition,
+    Patch,
+    Regex,
+    RegexAnalysis,
+    RegexError,
+    RegexOptions
+}
 
 const MAX_PATTERN_BYTES: usize = 4096:usize
 const MAX_GROUP_NESTING: usize = 128:usize
@@ -18,10 +32,22 @@ const STATE_CLASS: i32 = 6:i32
 const STATE_CAPTURE_START: i32 = 7:i32
 const STATE_CAPTURE_END: i32 = 8:i32
 const STATE_CAPTURE_NAME: i32 = 9:i32
+const STATE_WORD_BOUNDARY: i32 = 10:i32
 
 const EDGE_OUT: i32 = 0:i32
 const EDGE_ALT: i32 = 1:i32
 const NO_STATE: i32 = -1:i32
+
+fn ascii_fold(b: u8) -> u8 {
+    if b >= 'A' as u8 && b <= 'Z' as u8 {
+        return b + 32:u8
+    }
+    return b
+}
+
+fn is_ascii_alpha(b: u8) -> bool {
+    return (b >= 'a' as u8 && b <= 'z' as u8) || (b >= 'A' as u8 && b <= 'Z' as u8)
+}
 
 fn error(position: usize, message: str) -> RegexError {
     return RegexError(position = position, message = string::from(message))
@@ -45,7 +71,7 @@ fn empty_class(negated: bool) -> ByteClass {
                      negated = negated)
 }
 
-fn add_class_byte(class#: ByteClass, byte: u8) {
+fn add_class_byte_raw(class#: ByteClass, byte: u8) {
     auto shift = (byte as u64) & 63:u64
     auto bit = (1:u64) << shift:u64
     if byte < 64:u8 { class.bits0 = class.bits0 | bit }
@@ -54,16 +80,27 @@ fn add_class_byte(class#: ByteClass, byte: u8) {
     else { class.bits3 = class.bits3 | bit }
 }
 
-fn add_class_range(class#: ByteClass, first: u8, last: u8) {
+fn add_class_byte(class#: ByteClass, byte: u8, options: RegexOptions) {
+    add_class_byte_raw(class#, byte)
+    if options.ignore_ascii_case && is_ascii_alpha(byte) {
+        if byte >= 'a' as u8 && byte <= 'z' as u8 {
+            add_class_byte_raw(class#, byte - 32:u8)
+        } else if byte >= 'A' as u8 && byte <= 'Z' as u8 {
+            add_class_byte_raw(class#, byte + 32:u8)
+        }
+    }
+}
+
+fn add_class_range(class#: ByteClass, first: u8, last: u8, options: RegexOptions) {
     auto byte# = first
     loop true {
-        add_class_byte(class, byte)
+        add_class_byte(class#, byte, options)
         if byte == last { break }
         byte = byte + 1:u8
     }
 }
 
-fn predefined_class(escape: u8) -> Option<ByteClass> {
+fn predefined_class(escape: u8, options: RegexOptions) -> Option<ByteClass> {
     auto negated# = false
     auto kind# = escape
     if escape == 'D' as u8 || escape == 'W' as u8 || escape == 'S' as u8 {
@@ -75,18 +112,18 @@ fn predefined_class(escape: u8) -> Option<ByteClass> {
     }
     auto members# = empty_class(negated)
     if kind == 'd' as u8 {
-        add_class_range(members, '0' as u8, '9' as u8)
+        add_class_range(members#, '0' as u8, '9' as u8, options)
     } else if kind == 'w' as u8 {
-        add_class_range(members, 'a' as u8, 'z' as u8)
-        add_class_range(members, 'A' as u8, 'Z' as u8)
-        add_class_range(members, '0' as u8, '9' as u8)
-        add_class_byte(members, '_' as u8)
+        add_class_range(members#, 'a' as u8, 'z' as u8, options)
+        add_class_range(members#, 'A' as u8, 'Z' as u8, options)
+        add_class_range(members#, '0' as u8, '9' as u8, options)
+        add_class_byte(members#, '_' as u8, options)
     } else {
-        add_class_byte(members, ' ' as u8)
-        add_class_byte(members, '\t' as u8)
-        add_class_byte(members, '\n' as u8)
-        add_class_byte(members, '\r' as u8)
-        add_class_byte(members, 12:u8)
+        add_class_byte(members#, ' ' as u8, options)
+        add_class_byte(members#, '\t' as u8, options)
+        add_class_byte(members#, '\n' as u8, options)
+        add_class_byte(members#, '\r' as u8, options)
+        add_class_byte(members#, 12:u8, options)
     }
     return Option<ByteClass>::Some(cede members)
 }
@@ -127,30 +164,30 @@ fn patch_all(program#: Vec<NfaState>, patches: Vec<Patch>, target: i32) {
 }
 
 fn empty_fragment(program#: Vec<NfaState>) -> Fragment {
-    auto entry = new_state(program, STATE_SPLIT, 0:u8, NO_STATE, NO_STATE, NO_STATE)
+    auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, NO_STATE, NO_STATE)
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_OUT))
 }
 
 fn state_fragment(program#: Vec<NfaState>, kind: i32, byte: u8) -> Fragment {
-    auto entry = new_state(program, kind, byte, NO_STATE, NO_STATE, NO_STATE)
+    auto entry = new_state(program#, kind, byte, NO_STATE, NO_STATE, NO_STATE)
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_OUT))
 }
 
 fn class_fragment(program#: Vec<NfaState>, classes#: Vec<ByteClass>, cede members: ByteClass) -> Fragment {
     auto class_id = classes.len() as i32
     classes#.push(cede members)
-    auto entry = new_state(program, STATE_CLASS, 0:u8, class_id, NO_STATE, NO_STATE)
+    auto entry = new_state(program#, STATE_CLASS, 0:u8, class_id, NO_STATE, NO_STATE)
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_OUT))
 }
 
 fn capture_fragment(program#: Vec<NfaState>, capture_id: usize, cede inner: Fragment) -> Fragment {
     auto inner_entry = inner.entry
     auto inner_exits = cede inner.exits
-    auto entry = new_state(program, STATE_CAPTURE_START, 0:u8, capture_id as i32,
+    auto entry = new_state(program#, STATE_CAPTURE_START, 0:u8, capture_id as i32,
                            inner_entry, NO_STATE)
-    auto exit = new_state(program, STATE_CAPTURE_END, 0:u8, capture_id as i32,
+    auto exit = new_state(program#, STATE_CAPTURE_END, 0:u8, capture_id as i32,
                           NO_STATE, NO_STATE)
-    patch_all(program, inner_exits, exit)
+    patch_all(program#, inner_exits, exit)
     return Fragment(entry = entry, exits = one_patch(exit, EDGE_OUT))
 }
 
@@ -159,7 +196,7 @@ fn concat_fragments(program#: Vec<NfaState>, cede left: Fragment, cede right: Fr
     auto exits = cede left.exits
     auto next_entry = right.entry
     auto next_exits = cede right.exits
-    patch_all(program, exits, next_entry)
+    patch_all(program#, exits, next_entry)
     return Fragment(entry = entry, exits = cede next_exits)
 }
 
@@ -168,30 +205,30 @@ fn alternate_fragments(program#: Vec<NfaState>, cede left: Fragment, cede right:
     auto left_exits = cede left.exits
     auto right_entry = right.entry
     auto right_exits = cede right.exits
-    auto entry = new_state(program, STATE_SPLIT, 0:u8, NO_STATE, left_entry, right_entry)
+    auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, left_entry, right_entry)
     return Fragment(entry = entry, exits = merge_patches(cede left_exits, cede right_exits))
 }
 
 fn star_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
     auto inner_entry = inner.entry
     auto inner_exits = cede inner.exits
-    auto entry = new_state(program, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
-    patch_all(program, inner_exits, entry)
+    auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
+    patch_all(program#, inner_exits, entry)
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_ALT))
 }
 
 fn plus_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
     auto entry = inner.entry
     auto exits = cede inner.exits
-    auto split = new_state(program, STATE_SPLIT, 0:u8, NO_STATE, entry, NO_STATE)
-    patch_all(program, exits, split)
+    auto split = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, entry, NO_STATE)
+    patch_all(program#, exits, split)
     return Fragment(entry = entry, exits = one_patch(split, EDGE_ALT))
 }
 
 fn optional_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
     auto inner_entry = inner.entry
     auto inner_exits = cede inner.exits
-    auto entry = new_state(program, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
+    auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
     auto skipped = one_patch(entry, EDGE_ALT)
     return Fragment(entry = entry, exits = merge_patches(cede inner_exits, cede skipped))
 }
@@ -234,8 +271,6 @@ fn escaped_next(position: usize, escaped: u8) -> usize {
     return position + 1:usize
 }
 
-// Numbering belongs to the written pattern, not a particular NFA copy. This
-// keeps a group inside {m,n} at one stable capture index across repetitions.
 fn capture_group_at(pattern: str, opening_position: usize) -> usize {
     auto cursor# = 0:usize
     auto count# = 0:usize
@@ -272,8 +307,6 @@ fn is_capture_name_byte(byte: u8) -> bool {
     return is_capture_name_start(byte) || byte >= '0' as u8 && byte <= '9' as u8
 }
 
-// Named groups follow the two forms accepted by Rust regex: (?<name>...) and
-// (?P<name>...). This returns the first byte in the group body.
 fn named_group_body_start(pattern: str, opening_position: usize) -> Result<usize, RegexError> {
     auto body = opening_position + 1:usize
     if body >= pattern.len() || pattern.byte_at(body) as u8 != '?' as u8 {
@@ -352,7 +385,7 @@ fn capture_names(pattern: str) -> Result<Vec<string>, RegexError> {
     return Result<Vec<string>, RegexError>::Ok(cede names)
 }
 
-fn parse_class(pattern: str, position: usize) -> Result<ParsedClass, RegexError> {
+fn parse_class(pattern: str, position: usize, options: RegexOptions) -> Result<ParsedClass, RegexError> {
     auto cursor# = position + 1:usize
     auto negated# = false
     if cursor < pattern.len() && pattern.byte_at(cursor) as u8 == '^' as u8 {
@@ -408,17 +441,33 @@ fn parse_class(pattern: str, position: usize) -> Result<ParsedClass, RegexError>
             if first > last {
                 return Result<ParsedClass, RegexError>::Err(error(dash_position, "descending regex character range"))
             }
-            add_class_range(members, first, last)
+            add_class_range(members#, first, last, options)
         } else {
-            add_class_byte(members, first)
+            add_class_byte(members#, first, options)
         }
         has_member = true
     }
     return Result<ParsedClass, RegexError>::Err(error(position, "missing closing ']'"))
 }
 
+fn make_literal_analysis(byte: u8, options: RegexOptions) -> AnalysisInfo {
+    auto folded# = byte
+    if options.ignore_ascii_case {
+        folded = ascii_fold(byte)
+    }
+    auto s# = string::new()
+    s#.push_byte_raw(folded)
+    auto pref = string::from(s.as_str())
+    return AnalysisInfo(
+        required_prefix = cede pref,
+        required_literal = Option<string>::Some(cede s),
+        can_match_empty = false,
+        is_pure_literal = true
+    )
+}
+
 fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaState>,
-              classes#: Vec<ByteClass>)
+              classes#: Vec<ByteClass>, options: RegexOptions)
               -> Result<ParsedFragment, RegexError> {
     if position >= pattern.len() {
         return Result<ParsedFragment, RegexError>::Err(error(position, "missing regex atom"))
@@ -430,7 +479,7 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
         }
         auto body = named_group_body_start(pattern, position)
         if body.is_err() { return Result<ParsedFragment, RegexError>::Err(body.unwrap_err()) }
-        auto nested = parse_expression(pattern, body.unwrap(), depth + 1:usize, program, classes)
+        auto nested = parse_expression(pattern, body.unwrap(), depth + 1:usize, program#, classes#, options)
         if nested.is_err() { return Result<ParsedFragment, RegexError>::Err(nested.unwrap_err()) }
         auto parsed = nested.unwrap()
         if parsed.next_byte >= pattern.len() || pattern.byte_at(parsed.next_byte) as u8 != ')' as u8 {
@@ -438,7 +487,8 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
         }
         auto capture_id = capture_group_at(pattern, position)
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = capture_fragment(program, capture_id, cede parsed.fragment),
+            fragment = capture_fragment(program#, capture_id, cede parsed.fragment),
+            analysis = cede parsed.analysis,
             next_byte = parsed.next_byte + 1:usize
         ))
     }
@@ -447,46 +497,61 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
         if escaped_position >= pattern.len() {
             return Result<ParsedFragment, RegexError>::Err(error(position, "dangling regex escape"))
         }
-        auto shorthand = predefined_class(pattern.byte_at(escaped_position) as u8)
+        auto shorthand = predefined_class(pattern.byte_at(escaped_position) as u8, options)
         if shorthand.is_some() {
             return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-                fragment = class_fragment(program, classes, cede shorthand.unwrap()),
+                fragment = class_fragment(program#, classes#, cede shorthand.unwrap()),
+                analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = false, is_pure_literal = false),
                 next_byte = position + 2:usize
             ))
         }
         auto escaped = escaped_byte(pattern, escaped_position)
         if escaped.is_err() { return Result<ParsedFragment, RegexError>::Err(escaped.unwrap_err()) }
+        auto esc_byte = escaped.unwrap()
+        auto frag# = empty_fragment(program#)
+        if options.ignore_ascii_case && is_ascii_alpha(esc_byte) {
+            auto members# = empty_class(false)
+            add_class_byte(members#, esc_byte, options)
+            frag = class_fragment(program#, classes#, cede members)
+        } else {
+            frag = state_fragment(program#, STATE_LITERAL, esc_byte)
+        }
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = state_fragment(program, STATE_LITERAL, escaped.unwrap()),
+            fragment = cede frag,
+            analysis = make_literal_analysis(esc_byte, options),
             next_byte = escaped_next(escaped_position, pattern.byte_at(escaped_position) as u8)
         ))
     }
     if byte == '.' as u8 {
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = state_fragment(program, STATE_ANY, 0:u8),
+            fragment = state_fragment(program#, STATE_ANY, 0:u8),
+            analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = false, is_pure_literal = false),
             next_byte = position + 1:usize
         ))
     }
     if byte == '^' as u8 {
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = state_fragment(program, STATE_START, 0:u8),
+            fragment = state_fragment(program#, STATE_START, 0:u8),
+            analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = true, is_pure_literal = false),
             next_byte = position + 1:usize
         ))
     }
     if byte == '$' as u8 {
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = state_fragment(program, STATE_END, 0:u8),
+            fragment = state_fragment(program#, STATE_END, 0:u8),
+            analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = true, is_pure_literal = false),
             next_byte = position + 1:usize
         ))
     }
     if byte == '[' as u8 {
-        auto parsed_class = parse_class(pattern, position)
+        auto parsed_class = parse_class(pattern, position, options)
         if parsed_class.is_err() {
             return Result<ParsedFragment, RegexError>::Err(parsed_class.unwrap_err())
         }
         auto class_info = parsed_class.unwrap()
         return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-            fragment = class_fragment(program, classes, cede class_info.value),
+            fragment = class_fragment(program#, classes#, cede class_info.value),
+            analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = false, is_pure_literal = false),
             next_byte = class_info.next_byte
         ))
     }
@@ -494,8 +559,17 @@ fn parse_atom(pattern: str, position: usize, depth: usize, program#: Vec<NfaStat
        byte == '|' as u8 || byte == ')' as u8 || byte == ']' as u8 {
         return Result<ParsedFragment, RegexError>::Err(error(position, "regex operator has no preceding atom"))
     }
+    auto lit_frag# = empty_fragment(program#)
+    if options.ignore_ascii_case && is_ascii_alpha(byte) {
+        auto members# = empty_class(false)
+        add_class_byte(members#, byte, options)
+        lit_frag = class_fragment(program#, classes#, cede members)
+    } else {
+        lit_frag = state_fragment(program#, STATE_LITERAL, byte)
+    }
     return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
-        fragment = state_fragment(program, STATE_LITERAL, byte),
+        fragment = cede lit_frag,
+        analysis = make_literal_analysis(byte, options),
         next_byte = position + 1:usize
     ))
 }
@@ -567,12 +641,12 @@ fn parse_repeat_count(pattern: str, position: usize) -> Result<ParsedRepetition,
 }
 
 fn parse_repeat_copy(pattern: str, atom_position: usize, depth: usize,
-                     program#: Vec<NfaState>, classes#: Vec<ByteClass>)
+                     program#: Vec<NfaState>, classes#: Vec<ByteClass>, options: RegexOptions)
                      -> Result<Fragment, RegexError> {
     if program.len() >= MAX_NFA_STATES {
         return Result<Fragment, RegexError>::Err(error(atom_position, "regex NFA state limit exceeded"))
     }
-    auto parsed = parse_atom(pattern, atom_position, depth, program, classes)
+    auto parsed = parse_atom(pattern, atom_position, depth, program#, classes#, options)
     if parsed.is_err() { return Result<Fragment, RegexError>::Err(parsed.unwrap_err()) }
     if program.len() > MAX_NFA_STATES {
         return Result<Fragment, RegexError>::Err(error(atom_position, "regex NFA state limit exceeded"))
@@ -580,65 +654,84 @@ fn parse_repeat_copy(pattern: str, atom_position: usize, depth: usize,
     return Result<Fragment, RegexError>::Ok(cede parsed.unwrap().fragment)
 }
 
+fn longest_literal(cede a: Option<string>, cede b: Option<string>) -> Option<string> {
+    if a.is_none() { return cede b }
+    if b.is_none() { return cede a }
+    auto str_a = a.unwrap()
+    auto str_b = b.unwrap()
+    if str_b.len() > str_a.len() {
+        return Option<string>::Some(cede str_b)
+    }
+    return Option<string>::Some(cede str_a)
+}
+
 fn parse_concatenation(pattern: str, position: usize, depth: usize, program#: Vec<NfaState>,
-                       classes#: Vec<ByteClass>)
+                       classes#: Vec<ByteClass>, options: RegexOptions)
                        -> Result<ParsedFragment, RegexError> {
-    auto current# = empty_fragment(program)
+    auto current# = empty_fragment(program#)
     auto has_atom# = false
     auto cursor# = position
+    auto current_analysis# = AnalysisInfo(
+        required_prefix = string::new(),
+        required_literal = Option<string>::None,
+        can_match_empty = true,
+        is_pure_literal = true
+    )
+
     loop cursor < pattern.len() {
         auto byte = pattern.byte_at(cursor) as u8
         if byte == ')' as u8 || byte == '|' as u8 { break }
-        auto atom = parse_atom(pattern, cursor, depth, program, classes)
+        auto atom = parse_atom(pattern, cursor, depth, program#, classes#, options)
         if atom.is_err() { return Result<ParsedFragment, RegexError>::Err(atom.unwrap_err()) }
         auto parsed = atom.unwrap()
         auto next# = parsed.next_byte
         auto fragment# = cede parsed.fragment
+        auto atom_analysis# = cede parsed.analysis
+
         if next < pattern.len() {
             auto quantifier = pattern.byte_at(next) as u8
             if quantifier == '*' as u8 {
-                fragment = star_fragment(program, cede fragment)
+                fragment = star_fragment(program#, cede fragment)
+                atom_analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = true, is_pure_literal = false)
                 next = next + 1:usize
             } else if quantifier == '+' as u8 {
-                fragment = plus_fragment(program, cede fragment)
+                fragment = plus_fragment(program#, cede fragment)
+                atom_analysis.is_pure_literal = false
                 next = next + 1:usize
             } else if quantifier == '?' as u8 {
-                fragment = optional_fragment(program, cede fragment)
+                fragment = optional_fragment(program#, cede fragment)
+                atom_analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = true, is_pure_literal = false)
                 next = next + 1:usize
             } else if quantifier == '{' as u8 {
                 auto repetition = parse_repeat_count(pattern, next)
                 if repetition.is_err() { return Result<ParsedFragment, RegexError>::Err(repetition.unwrap_err()) }
                 auto bounds = repetition.unwrap()
-                auto repeated# = empty_fragment(program)
+                auto repeated# = empty_fragment(program#)
                 auto produced# = 0:usize
 
-                // Reparse each copy so every repetition owns independent NFA
-                // states and unresolved exits. The first atom has already
-                // validated this syntax; its unused provisional fragment is
-                // discarded with this failed-to-concatenate path.
                 loop produced < bounds.minimum {
-                    auto copied = parse_repeat_copy(pattern, cursor, depth, program, classes)
+                    auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                     if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
                     auto copy_fragment = cede copied.unwrap()
-                    repeated = concat_fragments(program, cede repeated, cede copy_fragment)
+                    repeated = concat_fragments(program#, cede repeated, cede copy_fragment)
                     produced = produced + 1:usize
                 }
 
                 if bounds.maximum < 0:i32 {
-                    auto copied = parse_repeat_copy(pattern, cursor, depth, program, classes)
+                    auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                     if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
                     auto tail = cede copied.unwrap()
-                    auto starred = star_fragment(program, cede tail)
-                    repeated = concat_fragments(program, cede repeated, cede starred)
+                    auto starred = star_fragment(program#, cede tail)
+                    repeated = concat_fragments(program#, cede repeated, cede starred)
                 } else {
                     auto optional_count = bounds.maximum as usize - bounds.minimum
                     auto optional_index# = 0:usize
                     loop optional_index < optional_count {
-                        auto copied = parse_repeat_copy(pattern, cursor, depth, program, classes)
+                        auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                         if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
                         auto copy_fragment = cede copied.unwrap()
-                        auto optional = optional_fragment(program, cede copy_fragment)
-                        repeated = concat_fragments(program, cede repeated, cede optional)
+                        auto optional = optional_fragment(program#, cede copy_fragment)
+                        repeated = concat_fragments(program#, cede repeated, cede optional)
                         optional_index = optional_index + 1:usize
                     }
                 }
@@ -646,78 +739,187 @@ fn parse_concatenation(pattern: str, position: usize, depth: usize, program#: Ve
                     return Result<ParsedFragment, RegexError>::Err(error(next, "regex NFA state limit exceeded"))
                 }
                 fragment = cede repeated
+                if bounds.minimum == 0:usize {
+                    atom_analysis = AnalysisInfo(required_prefix = string::new(), required_literal = Option<string>::None, can_match_empty = true, is_pure_literal = false)
+                } else if bounds.minimum == 1:usize && bounds.maximum == 1:i32 {
+                    // inherit atom_analysis
+                } else {
+                    atom_analysis.is_pure_literal = false
+                }
                 next = bounds.next_byte
             }
         }
+
         if has_atom {
-            current = concat_fragments(program, cede current, cede fragment)
+            current = concat_fragments(program#, cede current, cede fragment)
+            auto can_match_empty = current_analysis.can_match_empty && atom_analysis.can_match_empty
+            auto is_pure = current_analysis.is_pure_literal && atom_analysis.is_pure_literal
+            auto new_prefix# = string::new()
+            auto new_lit# = Option<string>::None
+
+            if is_pure {
+                new_prefix#.push_str(current_analysis.required_prefix.as_str())
+                new_prefix#.push_str(atom_analysis.required_prefix.as_str())
+                new_lit = Option<string>::Some(string::from(new_prefix.as_str()))
+            } else if current_analysis.is_pure_literal && atom_analysis.required_prefix.len() > 0:usize {
+                new_prefix#.push_str(current_analysis.required_prefix.as_str())
+                new_prefix#.push_str(atom_analysis.required_prefix.as_str())
+                new_lit = longest_literal(Option<string>::Some(string::from(new_prefix.as_str())), cede atom_analysis.required_literal)
+            } else if current_analysis.required_prefix.len() > 0:usize {
+                new_prefix = string::from(current_analysis.required_prefix.as_str())
+                new_lit = longest_literal(cede current_analysis.required_literal, cede atom_analysis.required_literal)
+            } else {
+                new_lit = longest_literal(cede current_analysis.required_literal, cede atom_analysis.required_literal)
+            }
+
+            current_analysis = AnalysisInfo(
+                required_prefix = cede new_prefix,
+                required_literal = cede new_lit,
+                can_match_empty = can_match_empty,
+                is_pure_literal = is_pure
+            )
         } else {
             current = cede fragment
+            current_analysis = cede atom_analysis
             has_atom = true
         }
         cursor = next
     }
     return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
         fragment = cede current,
+        analysis = cede current_analysis,
         next_byte = cursor
     ))
 }
 
 fn parse_expression(pattern: str, position: usize, depth: usize, program#: Vec<NfaState>,
-                    classes#: Vec<ByteClass>)
+                    classes#: Vec<ByteClass>, options: RegexOptions)
                     -> Result<ParsedFragment, RegexError> {
-    auto first = parse_concatenation(pattern, position, depth, program, classes)
+    auto first = parse_concatenation(pattern, position, depth, program#, classes#, options)
     if first.is_err() { return Result<ParsedFragment, RegexError>::Err(first.unwrap_err()) }
     auto parsed = first.unwrap()
     auto current# = cede parsed.fragment
+    auto current_analysis# = cede parsed.analysis
     auto cursor# = parsed.next_byte
+
     loop cursor < pattern.len() && pattern.byte_at(cursor) as u8 == '|' as u8 {
-        auto right = parse_concatenation(pattern, cursor + 1:usize, depth, program, classes)
+        auto right = parse_concatenation(pattern, cursor + 1:usize, depth, program#, classes#, options)
         if right.is_err() { return Result<ParsedFragment, RegexError>::Err(right.unwrap_err()) }
         auto next = right.unwrap()
-        current = alternate_fragments(program, cede current, cede next.fragment)
+        current = alternate_fragments(program#, cede current, cede next.fragment)
+
+        auto next_analysis = cede next.analysis
+        auto can_empty = current_analysis.can_match_empty || next_analysis.can_match_empty
+        auto req_lit# = Option<string>::None
+        if current_analysis.required_literal.is_some() && next_analysis.required_literal.is_some() {
+            auto cur_lit = cede current_analysis.required_literal
+            auto next_lit = cede next_analysis.required_literal
+            auto cur_s = cur_lit.unwrap()
+            auto next_s = next_lit.unwrap()
+            if cur_s.as_str().equals(next_s.as_str()) {
+                req_lit = Option<string>::Some(cede cur_s)
+            }
+        }
+        current_analysis = AnalysisInfo(
+            required_prefix = string::new(),
+            required_literal = cede req_lit,
+            can_match_empty = can_empty,
+            is_pure_literal = false
+        )
         cursor = next.next_byte
     }
     return Result<ParsedFragment, RegexError>::Ok(ParsedFragment(
         fragment = cede current,
+        analysis = cede current_analysis,
         next_byte = cursor
     ))
 }
 
-
-pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
+pub fn compile_program_with_options(pattern: str, options: RegexOptions) -> Result<CompiledRegex, RegexError> {
     if pattern.len() > MAX_PATTERN_BYTES {
-        return Result<Regex, RegexError>::Err(error(
-        MAX_PATTERN_BYTES, "regex pattern exceeds v1 size limit"))
+        return Result<CompiledRegex, RegexError>::Err(error(
+            MAX_PATTERN_BYTES, "regex pattern exceeds v1 size limit"))
     }
     auto names = capture_names(pattern)
-    if names.is_err() { return Result<Regex, RegexError>::Err(names.unwrap_err()) }
+    if names.is_err() { return Result<CompiledRegex, RegexError>::Err(names.unwrap_err()) }
     auto program# = Vec<NfaState>::new()
     auto classes# = Vec<ByteClass>::new()
-    auto parsed = parse_expression(pattern, 0:usize, 0:usize, program, classes)
-    if parsed.is_err() { return Result<Regex, RegexError>::Err(parsed.unwrap_err()) }
-    auto fragment = cede parsed.unwrap()
-    if fragment.next_byte != pattern.len() {
-        return Result<Regex, RegexError>::Err(error(fragment.next_byte, "unexpected closing ')'"))
+    auto parsed = parse_expression(pattern, 0:usize, 0:usize, program#, classes#, options)
+    if parsed.is_err() { return Result<CompiledRegex, RegexError>::Err(parsed.unwrap_err()) }
+    auto parsed_frag = parsed.unwrap()
+    if parsed_frag.next_byte != pattern.len() {
+        return Result<CompiledRegex, RegexError>::Err(error(parsed_frag.next_byte, "unexpected closing ')'"))
     }
-    auto match_state = new_state(program, STATE_MATCH, 0:u8, NO_STATE, NO_STATE, NO_STATE)
-    patch_all(program, fragment.fragment.exits, match_state)
+
+    auto fragment# = cede parsed_frag.fragment
+    auto analysis_info = cede parsed_frag.analysis
+
+    // Wrap with word boundary assertion if word_regexp is enabled
+    if options.word_regexp {
+        auto wb_start = state_fragment(program#, STATE_WORD_BOUNDARY, 0:u8)
+        auto wb_end = state_fragment(program#, STATE_WORD_BOUNDARY, 0:u8)
+        fragment = concat_fragments(program#, cede wb_start, cede fragment)
+        fragment = concat_fragments(program#, cede fragment, cede wb_end)
+    }
+
+    // Wrap with line start/end anchors if line_regexp is enabled
+    if options.line_regexp {
+        auto l_start = state_fragment(program#, STATE_START, 0:u8)
+        auto l_end = state_fragment(program#, STATE_END, 0:u8)
+        fragment = concat_fragments(program#, cede l_start, cede fragment)
+        fragment = concat_fragments(program#, cede fragment, cede l_end)
+    }
+
+    auto match_state = new_state(program#, STATE_MATCH, 0:u8, NO_STATE, NO_STATE, NO_STATE)
+    patch_all(program#, fragment.exits, match_state)
     auto capture_names = names.unwrap()
     auto name_index# = 0:usize
     loop name_index < capture_names.len() {
         auto &name = capture_names.borrow(name_index)
         auto byte_index# = 0:usize
         loop byte_index < name.len() {
-            new_state(program, STATE_CAPTURE_NAME, name.as_str().byte_at(byte_index) as u8,
+            new_state(program#, STATE_CAPTURE_NAME, name.as_str().byte_at(byte_index) as u8,
                       name_index as i32, NO_STATE, NO_STATE)
             byte_index = byte_index + 1:usize
         }
         name_index = name_index + 1:usize
     }
-    return Result<Regex, RegexError>::Ok(Regex(
+
+    auto final_required# = cede analysis_info.required_literal
+    // Enforce invariant: can_match_empty == true => required_literal == None
+    if analysis_info.can_match_empty {
+        final_required = Option<string>::None
+    }
+
+    auto regex = Regex(
         program = cede program,
         classes = cede classes,
-        entry = fragment.fragment.entry,
+        entry = fragment.entry,
         capture_count = capture_group_count(pattern)
+    )
+
+    auto analysis = RegexAnalysis(
+        required_literal = cede final_required,
+        can_match_empty = analysis_info.can_match_empty
+    )
+
+    return Result<CompiledRegex, RegexError>::Ok(CompiledRegex(
+        regex = cede regex,
+        analysis = cede analysis,
+        options = options
     ))
+}
+
+pub fn compile_program(pattern: str) -> Result<Regex, RegexError> {
+    auto default_options = RegexOptions(
+        ignore_ascii_case = false,
+        word_regexp = false,
+        line_regexp = false
+    )
+    auto compiled_res = compile_program_with_options(pattern, default_options)
+    if compiled_res.is_err() {
+        return Result<Regex, RegexError>::Err(compiled_res.unwrap_err())
+    }
+    auto compiled = compiled_res.unwrap()
+    return Result<Regex, RegexError>::Ok(cede compiled.regex)
 }

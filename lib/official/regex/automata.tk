@@ -11,6 +11,15 @@ const STATE_MATCH: i32 = 5:i32
 const STATE_CLASS: i32 = 6:i32
 const STATE_CAPTURE_START: i32 = 7:i32
 const STATE_CAPTURE_END: i32 = 8:i32
+const STATE_CAPTURE_NAME: i32 = 9:i32
+const STATE_WORD_BOUNDARY: i32 = 10:i32
+
+fn is_ascii_word_byte(b: u8) -> bool {
+    return (b >= 'a' as u8 && b <= 'z' as u8) ||
+           (b >= 'A' as u8 && b <= 'Z' as u8) ||
+           (b >= '0' as u8 && b <= '9' as u8) ||
+           b == '_' as u8
+}
 
 fn class_contains(class: ByteClass, byte: u8) -> bool {
     auto shift = (byte as u64) & 63:u64
@@ -68,30 +77,44 @@ fn add_thread(program: Vec<NfaState>, state_id: i32, input: str, cursor: usize,
     auto state = program.get(index)
     if state.kind == STATE_SPLIT {
         auto alternative = copy_captures(current)
-        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen, active)
-        add_thread(program, state.alt, input, cursor, begin_byte, cede alternative, seen, active)
+        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
+        add_thread(program, state.alt, input, cursor, begin_byte, cede alternative, seen#, active#)
         return
     }
     if state.kind == STATE_START {
         if cursor == 0:usize {
-            add_thread(program, state.out, input, cursor, begin_byte, cede current, seen, active)
+            add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
         }
         return
     }
     if state.kind == STATE_END {
         if cursor == input.len() {
-            add_thread(program, state.out, input, cursor, begin_byte, cede current, seen, active)
+            add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
+        }
+        return
+    }
+    if state.kind == STATE_WORD_BOUNDARY {
+        auto is_prev_word# = false
+        if cursor > 0:usize {
+            is_prev_word = is_ascii_word_byte(input.byte_at(cursor - 1:usize) as u8)
+        }
+        auto is_next_word# = false
+        if cursor < input.len() {
+            is_next_word = is_ascii_word_byte(input.byte_at(cursor) as u8)
+        }
+        if is_prev_word != is_next_word {
+            add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
         }
         return
     }
     if state.kind == STATE_CAPTURE_START {
         current#.set((state.class_id as usize) * 2:usize, cursor as i32)
-        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen, active)
+        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
         return
     }
     if state.kind == STATE_CAPTURE_END {
         current#.set((state.class_id as usize) * 2:usize + 1:usize, cursor as i32)
-        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen, active)
+        add_thread(program, state.out, input, cursor, begin_byte, cede current, seen#, active#)
         return
     }
     active#.push(ActiveState(
@@ -105,7 +128,7 @@ fn add_thread(program: Vec<NfaState>, state_id: i32, input: str, cursor: usize,
 fn add_start_thread(program: Vec<NfaState>, entry: i32, input: str, cursor: usize,
                     capture_count: usize, threads#: ThreadSet) {
     add_thread(program, entry, input, cursor, cursor, cede empty_captures(capture_count),
-               threads.seen, threads.active)
+               threads.seen#, threads.active#)
 }
 
 fn advance_threads(program: Vec<NfaState>, classes: Vec<ByteClass>,
@@ -130,19 +153,19 @@ fn advance_threads(program: Vec<NfaState>, classes: Vec<ByteClass>,
             if input.byte_at(cursor) as u8 == state.byte {
                 auto captures = copy_captures(thread.captures)
                 add_thread(program, state.out, input, cursor + 1:usize, thread.begin_byte,
-                           cede captures, next.seen, next.active)
+                           cede captures, next.seen#, next.active#)
             }
         } else if state.kind == STATE_ANY {
             if input.byte_at(cursor) as u8 != '\n' as u8 {
                 auto captures = copy_captures(thread.captures)
                 add_thread(program, state.out, input, cursor + 1:usize, thread.begin_byte,
-                           cede captures, next.seen, next.active)
+                           cede captures, next.seen#, next.active#)
             }
         } else if state.kind == STATE_CLASS {
             if class_contains(classes.get(state.class_id as usize), input.byte_at(cursor) as u8) {
                 auto captures = copy_captures(thread.captures)
                 add_thread(program, state.out, input, cursor + 1:usize, thread.begin_byte,
-                           cede captures, next.seen, next.active)
+                           cede captures, next.seen#, next.active#)
             }
         }
         index = index + 1:usize
@@ -179,21 +202,20 @@ fn first_match(program: Vec<NfaState>, active: Vec<ActiveState>, at_end: bool) -
     return Option<SearchResult>::None
 }
 
-
 pub fn search_program(program: Vec<NfaState>, classes: Vec<ByteClass>, entry: i32,
                       capture_count: usize, input: str, start_byte: usize) -> Option<SearchResult> {
     if start_byte > input.len() { return Option<SearchResult>::None }
     auto threads# = new_thread_set(program)
-    add_start_thread(program, entry, input, start_byte, capture_count, threads)
+    add_start_thread(program, entry, input, start_byte, capture_count, threads#)
     auto cursor# = start_byte
     loop true {
         auto found = first_match(program, threads.active, cursor == input.len())
         if found.is_some() { return found }
         if cursor == input.len() { break }
         auto next# = new_thread_set(program)
-        advance_threads(program, classes, cede threads.active, input, cursor, next)
+        advance_threads(program, classes, cede threads.active, input, cursor, next#)
         cursor = cursor + 1:usize
-        add_start_thread(program, entry, input, cursor, capture_count, next)
+        add_start_thread(program, entry, input, cursor, capture_count, next#)
         threads = cede next
     }
     return Option<SearchResult>::None
