@@ -1,6 +1,6 @@
 import core/string::{string}
 import std/vec::{Vec}
-import official/regex::{Regex, RegexSet, package_name}
+import official/regex::{Regex, RegexOptions, RegexSet, package_name}
 
 fn test_literals_dot_and_anchors() {
     auto literal = Regex::compile("ab.c")
@@ -235,9 +235,9 @@ fn test_split_and_replace_all() {
     auto comma = Regex::compile(",").unwrap()
     auto parts = comma.split("alpha,beta,")
     assert(parts.len() == 3:usize, "split must retain every field including a trailing empty field")
-    assert(parts.get_ref(0:usize).as_str().equals("alpha") &&
-           parts.get_ref(1:usize).as_str().equals("beta") &&
-           parts.get_ref(2:usize).as_str().equals(""),
+    assert(parts.borrow(0:usize).as_str().equals("alpha") &&
+           parts.borrow(1:usize).as_str().equals("beta") &&
+           parts.borrow(2:usize).as_str().equals(""),
            "split fields must own the unmatched input ranges")
 
     auto words = Regex::compile("([a-z]+)-([0-9]+)").unwrap()
@@ -250,8 +250,73 @@ fn test_split_and_replace_all() {
            "unmatched replacement captures must expand to an empty string")
 }
 
+fn test_options_and_analysis() {
+    auto default_opts = RegexOptions(ignore_ascii_case = false, word_regexp = false, line_regexp = false)
+
+    // Test required literal extraction
+    auto c1 = Regex::compile_with_options("foo(bar)?", default_opts).unwrap()
+    auto ana1 = c1.analysis()
+    assert(!ana1.can_match_empty(), "foo(bar)? cannot match empty")
+    auto lit1 = ana1.required_literal()
+    assert(lit1.is_some(), "foo(bar)? has required literal")
+    assert(lit1.unwrap().as_str().equals("foo"), "foo(bar)? literal is foo")
+
+    auto c2 = Regex::compile_with_options("a*", default_opts).unwrap()
+    auto ana2 = c2.analysis()
+    assert(ana2.can_match_empty(), "a* can match empty")
+    assert(ana2.required_literal().is_none(), "a* has no required literal")
+
+    auto c3 = Regex::compile_with_options("foo|bar", default_opts).unwrap()
+    auto ana3 = c3.analysis()
+    assert(!ana3.can_match_empty(), "foo|bar cannot match empty")
+    assert(ana3.required_literal().is_none(), "foo|bar has no required literal")
+
+    auto c4 = Regex::compile_with_options("fn[ \\t]+[a-z_]+", default_opts).unwrap()
+    auto ana4 = c4.analysis()
+    assert(!ana4.can_match_empty(), "fn... cannot match empty")
+    auto lit4 = ana4.required_literal()
+    assert(lit4.is_some(), "fn... has required literal")
+    assert(lit4.unwrap().as_str().equals("fn"), "fn... literal is fn")
+
+    auto c5 = Regex::compile_with_options("(foo|)", default_opts).unwrap()
+    auto ana5 = c5.analysis()
+    assert(ana5.can_match_empty(), "(foo|) can match empty")
+    assert(ana5.required_literal().is_none(), "(foo|) invariant: can_match_empty => required_literal == None")
+
+    // Test case-insensitive regex
+    auto ci_opts = RegexOptions(ignore_ascii_case = true, word_regexp = false, line_regexp = false)
+    auto ci = Regex::compile_with_options("pub fn [A-Z]+", ci_opts).unwrap()
+    assert(ci.is_match("pub fn FOO"), "ci matches uppercase")
+    assert(ci.is_match("PUB FN foo"), "ci matches lowercase")
+    auto ana_ci = ci.analysis()
+    auto lit_ci = ana_ci.required_literal()
+    assert(lit_ci.is_some(), "ci has required literal")
+    assert(lit_ci.unwrap().as_str().equals("pub fn "), "ci folded literal")
+
+    // Test word_regexp (-w)
+    auto w_opts = RegexOptions(ignore_ascii_case = false, word_regexp = true, line_regexp = false)
+    auto w_re = Regex::compile_with_options("foo|bar", w_opts).unwrap()
+    assert(w_re.is_match("a foo b"), "w matches discrete word foo")
+    assert(w_re.is_match("bar"), "w matches isolated bar")
+    assert(!w_re.is_match("foobar"), "w rejects foobar")
+    assert(!w_re.is_match("xfoo"), "w rejects xfoo")
+
+    auto w_dash = Regex::compile_with_options("-", w_opts).unwrap()
+    assert(w_dash.is_match("-"), "w matches isolated dash")
+    assert(w_dash.is_match(".-."), "w matches dash surrounded by dots")
+    assert(!w_dash.is_match("a-b"), "w rejects dash between word chars")
+
+    // Test line_regexp (-x) with a|abc
+    auto x_opts = RegexOptions(ignore_ascii_case = false, word_regexp = false, line_regexp = true)
+    auto x_re = Regex::compile_with_options("a|abc", x_opts).unwrap()
+    assert(x_re.is_match("abc"), "x matches exact line abc")
+    assert(x_re.is_match("a"), "x matches exact line a")
+    assert(!x_re.is_match("xabcy"), "x rejects substring in xabcy")
+}
+
 fn main() -> i32 {
     assert(package_name().equals("regex"), "public package name")
+    test_options_and_analysis()
     test_named_captures()
     test_split_and_replace_all()
     test_literals_dot_and_anchors()

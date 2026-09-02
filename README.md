@@ -1,6 +1,6 @@
 # `official/regex` v1
 
-Status: **`0.2.0` release candidate (not yet published)**.
+Status: **`0.3.0` released for Toka `1.0.0-rc.11`**.
 
 `official/regex` is Toka's official regular-expression package. Its package
 identity and public import path are `official/regex`; its manifest short name
@@ -8,31 +8,43 @@ is `regex`.
 
 ## Design boundary
 
-v1 is a byte-oriented **RE2 syntax profile**. Its completed matcher will use a
-Thompson-style NFA, never recursive backtracking. Matching state is bounded by
-the compiled pattern and worst-case work is `O(pattern_bytes * input_bytes)`,
-rather than exponential work from adversarial input. Pattern compilation has a
-fixed size limit; malformed or oversized patterns return structured errors
-containing the first relevant byte position. v1 limits patterns to 4096 bytes
-and parenthesis nesting to 128 levels.
+v1 is a byte-oriented **RE2 syntax profile**. Its matcher uses a Thompson-style
+NFA, never recursive backtracking. Matching state is bounded by the compiled
+pattern and worst-case work is `O(pattern_bytes * input_bytes)`, rather than
+exponential work from adversarial input. Pattern compilation has a fixed size
+limit; malformed or oversized patterns return structured errors containing the
+first relevant byte position. v1 limits patterns to 4096 bytes and parenthesis
+nesting to 128 levels.
 
 The public API is:
 
 ```toka
-import official/regex::{Regex, RegexError}
+import official/regex::{Regex, RegexOptions, RegexAnalysis, CompiledRegex, RegexError}
 
 auto compiled = Regex::compile("ab+c")
 if compiled.is_ok() {
     assert(compiled.unwrap().is_match("abbbc"))
 }
+
+// Compile with options (case folding, word boundary, full line anchor)
+auto opts = RegexOptions(ignore_ascii_case = true, word_regexp = false, line_regexp = false)
+auto opt_compiled = Regex::compile_with_options("fn\\s+[a-z_]+", opts)
+if opt_compiled.is_ok() {
+    auto plan = opt_compiled.unwrap()
+    assert(plan.is_match("FN foo"))
+    auto ana = plan.analysis()
+    assert(!ana.can_match_empty())
+    assert(ana.required_literal().is_some())
+}
 ```
 
-`Regex::compile` returns `Result<Regex, RegexError>`. `Regex::is_match` tests
-whether any substring matches; `Regex::find` returns byte offsets for the first
-match; and `Regex::find_all` returns all leftmost, non-overlapping matches.
-Empty matches are reported once at each search boundary and then advance one
-byte, avoiding an infinite scan. The API owns compiled pattern data and never
-returns a view into a temporary input.
+`Regex::compile` returns `Result<Regex, RegexError>`. `Regex::compile_with_options`
+returns `Result<CompiledRegex, RegexError>`. `Regex::is_match` tests whether any
+substring matches; `Regex::find` returns byte offsets for the first match; and
+`Regex::find_all` returns all leftmost, non-overlapping matches. Empty matches
+are reported once at each search boundary and then advance one byte, avoiding an
+infinite scan. The API owns compiled pattern data and never returns a view into
+a temporary input.
 
 `Regex::captures` returns the whole match at index `0` followed by numbered
 parenthesized groups. Every value is a byte-offset range; a group skipped by
@@ -52,29 +64,19 @@ that need them should retain and query an individual `Regex`.
 ## Module layout
 
 The public `official/regex` module remains the only consumer entry point.
-Internally, `model` owns the NFA data shapes, `syntax` parses and compiles a
-pattern, `automata` executes a compiled program and carries capture registers,
-`engine` owns the public `Regex` methods, and `set` provides multi-pattern
-search. New syntax, capture, Unicode, or search-optimization work belongs in
-its respective layer instead
-of extending the public entry module.
+Internally, `model` owns the NFA data shapes and options, `syntax` parses and
+compiles a pattern while performing required-literal analysis, `automata` executes
+a compiled program with word/line boundary assertions, `engine` owns the public
+`Regex` and `CompiledRegex` methods, and `set` provides multi-pattern search.
 
 ## Release lineage
 
-`0.1.0` was released while this package lived in
-[`tokalang/toka`](https://github.com/tokalang/toka), from the exact source tag
-[`official-regex-v0.1.0`](https://github.com/tokalang/toka/tree/official-regex-v0.1.0).
-Its matching GitHub Release asset is `regex-0.1.0.tar.gz`; the reviewed static
-registry catalog records its SHA-256 digest and remains the authoritative
-installation record for that version.
-
-This repository is the canonical source for later versions. `0.1.1` is its
-first standalone release, tagged
-[`v0.1.1`](https://github.com/tokalang/regex/tree/v0.1.1), with a
-`regex-0.1.1.tar.gz` GitHub Release asset and a distinct static-registry record.
-The current source is frozen for the immutable `0.2.0` release; it is not yet
-a registry release. The exact release evidence required to promote it is in
-[the 0.2 release gate](docs/release_0_2.md).
+- `0.1.0`: Initial release under `tokalang/toka` mono-repo.
+- `0.1.1`: First standalone package release.
+- `0.2.0`: Immutable stable release.
+- `0.3.0`: Upgraded to Toka `1.0.0-rc.11` ownership and borrowing model; added
+  `RegexOptions(ignore_ascii_case, word_regexp, line_regexp)`, `RegexAnalysis`,
+  and `CompiledRegex` with conservative required-literal prefilter extraction.
 
 ## v1 syntax profile
 
@@ -84,73 +86,17 @@ a registry release. The exact release evidence required to promote it is in
   `(?P<name>...)`, and alternation `|`;
 - postfix `*`, `+`, `?`, and counted repetitions `{m}`, `{m,}`, `{m,n}`;
 - ASCII byte classes such as `[abc]`, `[a-z]`, and `[^0-9]`;
-- `^` and `$` anchors.
-
-The public target is this RE2-compatible regular subset, not a claim of full
-RE2 compatibility. The implementation slice enables literals, escaped metacharacters,
-`.`, `^`, `$`, grouping, alternation, postfix `*`, `+`, `?`, and counted
-repetitions, plus ASCII
-character classes, ranges, and negated classes. Escapes are intentionally
-limited to literal metacharacters, `\n`/`\r`/`\t`, `\xNN`, and ASCII
-`\d`/`\D`/`\w`/`\W`/`\s`/`\S` outside bracket classes. Matching operates on
-UTF-8 string bytes; it does not promise Unicode character classes, grapheme
-boundaries, or Unicode case folding.
-
-Counted repetitions accept bounds through 1000. Compilation also rejects a
-pattern that would expand beyond 32,768 NFA states; this preserves the v1
-bounded-resource contract even when a short pattern contains a large group.
-
-The planned Unicode profile is intentionally separate from this byte API; its
-dependency and acceptance gates are recorded in
-[the Unicode scope](docs/unicode_scope.md).
+- `^` and `$` anchors, plus native `word_regexp` and `line_regexp` assertions.
 
 ## Explicit non-goals
 
 Backreferences, look-around, recursive patterns, named replacement references,
-and Unicode property classes are outside v1. They either
-need a separate bounded design or would weaken the package's predictable
-resource contract.
+and Unicode property classes are outside v1.
 
 ## Qualification
 
 Run the qualification from this package root:
 
 ```text
-python3 tests/qualify_package.py
-```
-
-## Performance baseline
-
-The opt-in benchmark compiles once, then measures matching on a long suffix
-search, the classic `(a|aa)*b` non-backtracking shape, replacement expansion,
-and `RegexSet` search. It reports a median runtime rather than imposing a
-machine-dependent CI threshold.
-
-```text
-TOKA_ROOT=/path/to/toka python3 bench/run_bench.py
-```
-
-The same command is portable to an extracted standalone checkout. Point it at
-either a built Toka source checkout:
-
-```text
 TOKA_ROOT=/path/to/toka python3 tests/qualify_package.py
 ```
-
-or an installed toolchain:
-
-```text
-TOKA=/path/to/toka TOKAC=/path/to/tokac TOKA_LIB=/path/to/lib python3 tests/qualify_package.py
-```
-
-Package CI must run one of these standalone forms; it must not depend on the
-package living below Toka's `official/` source directory.
-
-The qualification suite covers accepted syntax, malformed-pattern byte
-positions, anchors/classes/quantifiers, and adversarial non-match cases that
-would make a backtracking engine exponential.
-
-Qualification covers the complete profile suite plus a locked local consumer,
-offline lock replay, and a public-import `toka build`/run path. The grouped
-quantified regression `a(b|c)+d?` matching `ac` is included in both the direct
-suite and consumer path.

@@ -1,9 +1,9 @@
 import core/option::{Option}
 import core/result::{Result}
 import std/vec::{Vec}
-pub import official/regex/model::{Captures, Match, Regex, RegexError}
+pub import official/regex/model::{Captures, Match, Regex, RegexError, RegexOptions, RegexAnalysis, CompiledRegex}
 import official/regex/model::{SearchResult}
-import official/regex/syntax::{compile_program}
+import official/regex/syntax::{compile_program, compile_program_with_options}
 import official/regex/automata::{search_program}
 
 const STATE_CAPTURE_NAME: i32 = 9:i32
@@ -34,7 +34,7 @@ impl Captures {
     pub fn name(self, name: str) -> Option<Match> {
         auto index# = 0:usize
         loop index < self.names.len() {
-            auto *candidate = self.names.get_ref(index)
+            auto &candidate = self.names.borrow(index)
             if candidate.as_str().equals(name) {
                 return self.groups.get(index)
             }
@@ -80,7 +80,7 @@ fn append_replacement(output#: string, replacement: str, input: str, captures: C
                 auto captured = captures.get(group)
                 if captured.is_some() {
                     auto range = captured.unwrap()
-                    append_input_range(output, input, range.begin_byte, range.end_byte)
+                    append_input_range(output#, input, range.begin_byte, range.end_byte)
                 }
             } else {
                 output#.push_byte_raw('$' as u8)
@@ -93,6 +93,10 @@ fn append_replacement(output#: string, replacement: str, input: str, captures: C
 impl Regex {
     pub fn compile(pattern: str) -> Result<Regex, RegexError> {
         return compile_program(pattern)
+    }
+
+    pub fn compile_with_options(pattern: str, options: RegexOptions) -> Result<CompiledRegex, RegexError> {
+        return compile_program_with_options(pattern, options)
     }
 
     fn search_from(self, input: str, start_byte: usize) -> Option<SearchResult> {
@@ -131,7 +135,7 @@ impl Regex {
             auto name# = string::from("")
             auto state_index# = 0:usize
             loop state_index < self.program.len() {
-                auto *state = self.program.get_ref(state_index)
+                auto &state = self.program.borrow(state_index)
                 if state.kind == STATE_CAPTURE_NAME && state.class_id == index as i32 {
                     name#.push_byte_raw(state.byte)
                 }
@@ -180,7 +184,7 @@ impl Regex {
             if found.is_none() { break }
             auto matched = found.unwrap()
             auto part# = string::from("")
-            append_input_range(part, input, copied_until, matched.begin_byte)
+            append_input_range(part#, input, copied_until, matched.begin_byte)
             parts#.push(cede part)
             copied_until = matched.end_byte
             if matched.end_byte == matched.begin_byte {
@@ -191,7 +195,7 @@ impl Regex {
             }
         }
         auto tail# = string::from("")
-        append_input_range(tail, input, copied_until, input.len())
+        append_input_range(tail#, input, copied_until, input.len())
         parts#.push(cede tail)
         return parts
     }
@@ -205,8 +209,8 @@ impl Regex {
             if found.is_none() { break }
             auto captures = found.unwrap()
             auto matched = captures.whole_match()
-            append_input_range(output, input, copied_until, matched.begin_byte)
-            append_replacement(output, replacement, input, captures)
+            append_input_range(output#, input, copied_until, matched.begin_byte)
+            append_replacement(output#, replacement, input, captures)
             copied_until = matched.end_byte
             if matched.end_byte == matched.begin_byte {
                 if search_cursor == input.len() { break }
@@ -215,12 +219,62 @@ impl Regex {
                 search_cursor = matched.end_byte
             }
         }
-        append_input_range(output, input, copied_until, input.len())
+        append_input_range(output#, input, copied_until, input.len())
         return output
     }
 
     pub fn is_match(self, input: str) -> bool {
         return self.find(input).is_some()
+    }
+}
+
+impl RegexAnalysis {
+    pub fn required_literal(self) -> Option<string> {
+        match self.required_literal {
+            auto Option<string>::Some(&s) => {
+                return Option<string>::Some(string::from(s.as_str()))
+            }
+            _ => {
+                return Option<string>::None
+            }
+        }
+    }
+
+    pub fn can_match_empty(self) -> bool {
+        return self.can_match_empty
+    }
+}
+
+impl CompiledRegex {
+    pub fn find(self, input: str) -> Option<Match> {
+        return self.regex.find(input)
+    }
+
+    pub fn find_all(self, input: str) -> Vec<Match> {
+        return self.regex.find_all(input)
+    }
+
+    pub fn is_match(self, input: str) -> bool {
+        return self.regex.is_match(input)
+    }
+
+    pub fn analysis(self) -> RegexAnalysis {
+        return RegexAnalysis(
+            required_literal = self.analysis.required_literal(),
+            can_match_empty = self.analysis.can_match_empty()
+        )
+    }
+
+    pub fn required_literal(self) -> Option<string> {
+        return self.analysis.required_literal()
+    }
+
+    pub fn can_match_empty(self) -> bool {
+        return self.analysis.can_match_empty()
+    }
+
+    pub fn options(self) -> RegexOptions {
+        return self.options
     }
 }
 

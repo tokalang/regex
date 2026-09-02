@@ -53,8 +53,16 @@ pub shape Fragment (
     exits: Vec<Patch>
 )
 
+pub shape AnalysisInfo (
+    required_prefix: string,
+    required_literal: Option<string>,
+    can_match_empty: bool,
+    is_pure_literal: bool
+)
+
 pub shape ParsedFragment (
     fragment: Fragment,
+    analysis: AnalysisInfo,
     next_byte: usize
 )
 
@@ -86,4 +94,21 @@ pub shape Regex (
 pub shape SearchResult (
     matched: Match,
     captures: Vec<i32>
+)
+
+pub shape RegexOptions (
+    ignore_ascii_case: bool = false,
+    word_regexp: bool = false,
+    line_regexp: bool = false
+)
+
+pub shape RegexAnalysis (
+    required_literal: Option<string>,
+    can_match_empty: bool
+)
+
+pub shape CompiledRegex (
+    regex: Regex,
+    analysis: RegexAnalysis,
+    options: RegexOptions
 )
