@@ -1,5 +1,6 @@
 import core/option::{Option}
 import std/vec::{Vec}
+import official/regex/owned_vec::{UnsafeOwnedVec}
 import official/regex/model::{ActiveState, ByteClass, Match, NfaState, SearchResult, ThreadSet}
 
 const STATE_LITERAL: i32 = 0:i32
@@ -41,11 +42,11 @@ fn empty_seen(program: Vec<NfaState>) -> Vec<bool> {
         seen#.push(false)
         index = index + 1:usize
     }
-    return seen
+    return cede seen
 }
 
 fn new_thread_set(program: Vec<NfaState>) -> ThreadSet {
-    return ThreadSet(active = Vec<ActiveState>::new(), seen = empty_seen(program))
+    return ThreadSet(active = UnsafeOwnedVec<ActiveState>::new(), seen = empty_seen(program))
 }
 
 fn empty_captures(capture_count: usize) -> Vec<i32> {
@@ -55,7 +56,7 @@ fn empty_captures(capture_count: usize) -> Vec<i32> {
         captures#.push(-1:i32)
         index = index + 1:usize
     }
-    return captures
+    return cede captures
 }
 
 fn copy_captures(source: Vec<i32>) -> Vec<i32> {
@@ -65,11 +66,11 @@ fn copy_captures(source: Vec<i32>) -> Vec<i32> {
         copied#.push(source.get(index))
         index = index + 1:usize
     }
-    return copied
+    return cede copied
 }
 
 fn add_thread(program: Vec<NfaState>, state_id: i32, input: str, cursor: usize,
-              begin_byte: usize, cede captures: Vec<i32>, seen#: Vec<bool>, active#: Vec<ActiveState>) {
+              begin_byte: usize, cede captures: Vec<i32>, seen#: Vec<bool>, active#: UnsafeOwnedVec<ActiveState>) {
     auto current# = cede captures
     if state_id < 0:i32 { return }
     auto index = state_id as usize
@@ -131,7 +132,7 @@ fn add_start_thread(program: Vec<NfaState>, entry: i32, input: str, cursor: usiz
 }
 
 fn advance_threads(program: Vec<NfaState>, classes: Vec<ByteClass>,
-                   cede active: Vec<ActiveState>, input: str, cursor: usize,
+                   cede active: UnsafeOwnedVec<ActiveState>, input: str, cursor: usize,
                    next#: ThreadSet) {
     auto current = cede active
     auto index# = 0:usize
@@ -171,7 +172,7 @@ fn advance_threads(program: Vec<NfaState>, classes: Vec<ByteClass>,
     }
 }
 
-fn first_match(program: Vec<NfaState>, active: Vec<ActiveState>, at_end: bool) -> Option<SearchResult> {
+fn first_match(program: Vec<NfaState>, active: UnsafeOwnedVec<ActiveState>, at_end: bool) -> Option<SearchResult> {
     if active.len() == 0:usize {
         return Option<SearchResult>::None
     }
@@ -209,7 +210,7 @@ pub fn search_program(program: Vec<NfaState>, classes: Vec<ByteClass>, entry: i3
     auto cursor# = start_byte
     loop true {
         auto found = first_match(program, threads.active, cursor == input.len())
-        if found.is_some() { return found }
+        if found.is_some() { return cede found }
         if cursor == input.len() { break }
         auto next# = new_thread_set(program)
         advance_threads(program, classes, cede threads.active, input, cursor, next#)

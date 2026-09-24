@@ -3,6 +3,7 @@
 import core/option::{Option}
 import core/result::{Result}
 import std/vec::{Vec}
+import official/regex/owned_vec::{UnsafeOwnedVec}
 
 pub shape RegexError (
     position: usize,
@@ -18,7 +19,8 @@ pub shape Match (
 // A group that did not participate in the winning alternative is None.
 pub shape Captures (
     matched: Match,
-    groups: Vec<Option<Match>>,
+    groups: Vec<Match>,
+    participated: Vec<bool>,
     names: Vec<string>
 )
 
@@ -80,7 +82,7 @@ pub shape ActiveState (
 )
 
 pub shape ThreadSet (
-    active: Vec<ActiveState>,
+    active: UnsafeOwnedVec<ActiveState>,
     seen: Vec<bool>
 )
 

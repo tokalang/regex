@@ -1,0 +1,66 @@
+// Package-internal dynamic sequence for elements that themselves own storage.
+// The RC13 std/vec generic pop bridge eagerly specializes raw_take even when
+// callers only append and borrow. Regex needs only those latter operations.
+import core/traits::{@Encap}
+import sys/libc::{libc_abort}
+
+pub shape UnsafeOwnedVec<T> (
+    nul *#buf#: [T] = null as nul *[T],
+    len#: usize = 0,
+    cap#: usize = 0
+)
+
+impl<T> UnsafeOwnedVec<T>@Encap {
+    pub buf, len, cap
+
+    fn drop(self#) {
+        unsafe {
+            if self.*buf != null {
+                unsafe free [self.len]self.*#buf
+                self.*buf = null
+            }
+        }
+    }
+}
+
+impl<T> UnsafeOwnedVec<T> {
+    pub fn new() -> UnsafeOwnedVec<T> {
+        return UnsafeOwnedVec<T>(*buf=null, len=0, cap=0)
+    }
+
+    pub fn len(self) -> usize { return self.len }
+
+    pub fn borrow(self, index: usize) -> &item: T
+    effects:
+        &item <- self
+    {
+        if index >= self.len {
+            unsafe { libc_abort() }
+        }
+        unsafe { return &self.buf[index] }
+    }
+
+    pub fn push(self#, cede val: T) {
+        unsafe {
+            if self.len == self.cap { self#.grow() }
+            self.buf[self.len] = cede val
+            self.len += 1
+        }
+    }
+
+    fn grow(self#) {
+        unsafe {
+            auto new_cap# = self.cap * 2:usize
+            if new_cap == 0:usize { new_cap = 4:usize }
+            auto *new_buf# = unsafe alloc [new_cap] T
+            auto index# = 0:usize
+            loop index < self.len {
+                new_buf[index] = cede self.buf[index]
+                index += 1:usize
+            }
+            if self.*buf != null { unsafe free [0]self.*#buf }
+            self.*buf = *new_buf
+            self.cap = new_cap
+        }
+    }
+}

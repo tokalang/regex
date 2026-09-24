@@ -1,17 +1,18 @@
 import core/result::{Result}
 import std/vec::{Vec}
+import official/regex/owned_vec::{UnsafeOwnedVec}
 import official/regex/engine::{Regex, RegexError}
 
 // RegexSet compiles several independent bounded regex programs and reports
 // the indexes that match an input. It deliberately exposes no match offsets:
 // callers needing offsets can query the selected Regex directly.
 pub shape RegexSet (
-    regexes: Vec<Regex>
+    regexes: UnsafeOwnedVec<Regex>
 )
 
 impl RegexSet {
     pub fn compile(patterns: Vec<string>) -> Result<RegexSet, RegexError> {
-        auto regexes# = Vec<Regex>::new()
+        auto regexes# = UnsafeOwnedVec<Regex>::new()
         auto index# = 0:usize
         loop index < patterns.len() {
             auto &pattern = patterns.borrow(index)
@@ -47,6 +48,6 @@ impl RegexSet {
             }
             index = index + 1:usize
         }
-        return matched
+        return cede matched
     }
 }

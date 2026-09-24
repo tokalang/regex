@@ -132,7 +132,7 @@ fn predefined_class(escape: u8, options: RegexOptions) -> Option<ByteClass> {
 fn one_patch(state_id: i32, edge: i32) -> Vec<Patch> {
     auto patches# = Vec<Patch>::new()
     patches#.push(Patch(state_id = state_id, edge = edge))
-    return patches
+    return cede patches
 }
 
 fn merge_patches(cede first: Vec<Patch>, cede second: Vec<Patch>) -> Vec<Patch> {
@@ -149,7 +149,7 @@ fn merge_patches(cede first: Vec<Patch>, cede second: Vec<Patch>) -> Vec<Patch> 
         merged#.push(second_values.get(index))
         index = index + 1:usize
     }
-    return merged
+    return cede merged
 }
 
 fn patch_all(program#: Vec<NfaState>, patches: Vec<Patch>, target: i32) {
@@ -182,8 +182,9 @@ fn class_fragment(program#: Vec<NfaState>, classes#: Vec<ByteClass>, cede member
 }
 
 fn capture_fragment(program#: Vec<NfaState>, capture_id: usize, cede inner: Fragment) -> Fragment {
-    auto inner_entry = inner.entry
-    auto inner_exits = cede inner.exits
+    auto working# = cede inner
+    auto inner_entry = working.entry
+    auto inner_exits = working.exits#.take()
     auto entry = new_state(program#, STATE_CAPTURE_START, 0:u8, capture_id as i32,
                            inner_entry, NO_STATE)
     auto exit = new_state(program#, STATE_CAPTURE_END, 0:u8, capture_id as i32,
@@ -193,42 +194,49 @@ fn capture_fragment(program#: Vec<NfaState>, capture_id: usize, cede inner: Frag
 }
 
 fn concat_fragments(program#: Vec<NfaState>, cede left: Fragment, cede right: Fragment) -> Fragment {
-    auto entry = left.entry
-    auto exits = cede left.exits
-    auto next_entry = right.entry
-    auto next_exits = cede right.exits
+    auto first# = cede left
+    auto second# = cede right
+    auto entry = first.entry
+    auto exits = first.exits#.take()
+    auto next_entry = second.entry
+    auto next_exits = second.exits#.take()
     patch_all(program#, exits, next_entry)
     return Fragment(entry = entry, exits = cede next_exits)
 }
 
 fn alternate_fragments(program#: Vec<NfaState>, cede left: Fragment, cede right: Fragment) -> Fragment {
-    auto left_entry = left.entry
-    auto left_exits = cede left.exits
-    auto right_entry = right.entry
-    auto right_exits = cede right.exits
+    auto first# = cede left
+    auto second# = cede right
+    auto left_entry = first.entry
+    auto left_exits = first.exits#.take()
+    auto right_entry = second.entry
+    auto right_exits = second.exits#.take()
     auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, left_entry, right_entry)
     return Fragment(entry = entry, exits = merge_patches(cede left_exits, cede right_exits))
 }
 
 fn star_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
-    auto inner_entry = inner.entry
-    auto inner_exits = cede inner.exits
+    auto working# = cede inner
+    auto inner_entry = working.entry
+    auto inner_exits = working.exits#.take()
     auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
     patch_all(program#, inner_exits, entry)
     return Fragment(entry = entry, exits = one_patch(entry, EDGE_ALT))
 }
 
 fn plus_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
-    auto entry = inner.entry
-    auto exits = cede inner.exits
+    auto working# = cede inner
+    auto entry = working.entry
+    auto exits = working.exits#.take()
     auto split = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, entry, NO_STATE)
     patch_all(program#, exits, split)
     return Fragment(entry = entry, exits = one_patch(split, EDGE_ALT))
 }
 
 fn optional_fragment(program#: Vec<NfaState>, cede inner: Fragment) -> Fragment {
-    auto inner_entry = inner.entry
-    auto inner_exits = cede inner.exits
+    auto working# = cede inner
+    auto inner_entry = working.entry
+    auto inner_exits = working.exits#.take()
     auto entry = new_state(program#, STATE_SPLIT, 0:u8, NO_STATE, inner_entry, NO_STATE)
     auto skipped = one_patch(entry, EDGE_ALT)
     return Fragment(entry = entry, exits = merge_patches(cede inner_exits, cede skipped))
@@ -268,8 +276,9 @@ fn hex_digit(byte: u8) -> i32 {
 }
 
 fn escaped_next(position: usize, escaped: u8) -> usize {
-    if escaped == 'x' as u8 { return position + 3:usize }
-    return position + 1:usize
+    auto next# = position + 1:usize
+    if escaped == 'x' as u8 { next = position + 3:usize }
+    return next
 }
 
 fn capture_group_at(pattern: str, opening_position: usize) -> usize {
@@ -713,7 +722,7 @@ fn parse_concatenation(pattern: str, position: usize, depth: usize, program#: Ve
                 loop produced < bounds.minimum {
                     auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                     if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
-                    auto copy_fragment = cede copied.unwrap()
+                    auto copy_fragment = copied.unwrap()
                     repeated = concat_fragments(program#, cede repeated, cede copy_fragment)
                     produced = produced + 1:usize
                 }
@@ -721,7 +730,7 @@ fn parse_concatenation(pattern: str, position: usize, depth: usize, program#: Ve
                 if bounds.maximum < 0:i32 {
                     auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                     if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
-                    auto tail = cede copied.unwrap()
+                    auto tail = copied.unwrap()
                     auto starred = star_fragment(program#, cede tail)
                     repeated = concat_fragments(program#, cede repeated, cede starred)
                 } else {
@@ -730,7 +739,7 @@ fn parse_concatenation(pattern: str, position: usize, depth: usize, program#: Ve
                     loop optional_index < optional_count {
                         auto copied = parse_repeat_copy(pattern, cursor, depth, program#, classes#, options)
                         if copied.is_err() { return Result<ParsedFragment, RegexError>::Err(copied.unwrap_err()) }
-                        auto copy_fragment = cede copied.unwrap()
+                        auto copy_fragment = copied.unwrap()
                         auto optional = optional_fragment(program#, cede copy_fragment)
                         repeated = concat_fragments(program#, cede repeated, cede optional)
                         optional_index = optional_index + 1:usize
