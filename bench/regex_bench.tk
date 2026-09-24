@@ -9,11 +9,11 @@ fn repeated(byte: u8, count: usize) -> string {
         output#.push_byte_raw(byte)
         index = index + 1:usize
     }
-    return output
+    return cede output
 }
 
 fn main() -> i32 {
-    auto long_input = repeated('a' as u8, 65535:usize)
+    auto long_input# = repeated('a' as u8, 65535:usize)
     long_input#.push_byte_raw('z' as u8)
     auto suffix = Regex::compile("az$").unwrap()
     auto adversarial = Regex::compile("(a|aa)*b").unwrap()

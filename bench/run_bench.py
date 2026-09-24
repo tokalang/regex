@@ -19,11 +19,17 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--samples", type=int, default=7)
     args = parser.parse_args()
-    toka_root = Path(os.environ["TOKA_ROOT"]).resolve()
-    tokac = toka_root / "build" / "bin" / "tokac"
-    toka_lib = toka_root / "lib"
+    tokac_env = os.environ.get("TOKAC")
+    toka_lib_env = os.environ.get("TOKA_LIB")
+    if tokac_env and toka_lib_env:
+        tokac = Path(tokac_env).resolve()
+        toka_lib = Path(toka_lib_env).resolve()
+    else:
+        toka_root = Path(os.environ.get("TOKA_ROOT", "")).resolve()
+        tokac = toka_root / "build" / "bin" / "tokac"
+        toka_lib = toka_root / "lib"
     if args.samples < 1 or not tokac.is_file() or not toka_lib.is_dir():
-        raise SystemExit("TOKA_ROOT must identify a built Toka checkout; --samples must be positive")
+        raise SystemExit("TOKA_ROOT or TOKAC/TOKA_LIB must identify a built Toka checkout; --samples must be positive")
 
     with tempfile.TemporaryDirectory(prefix="toka-regex-bench-") as temporary:
         binary = Path(temporary) / "regex_bench"

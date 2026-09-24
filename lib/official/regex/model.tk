@@ -19,8 +19,7 @@ pub shape Match (
 // A group that did not participate in the winning alternative is None.
 pub shape Captures (
     matched: Match,
-    groups: Vec<Match>,
-    participated: Vec<bool>,
+    groups: Vec<Option<Match>>,
     names: Vec<string>
 )
 

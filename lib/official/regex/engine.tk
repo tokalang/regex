@@ -31,8 +31,7 @@ impl Captures {
     pub fn get(self, index: usize) -> Option<Match> {
         if index == 0:usize { return Option<Match>::Some(self.matched) }
         if index > self.groups.len() { return Option<Match>::None }
-        if !self.participated.get(index - 1:usize) { return Option<Match>::None }
-        return Option<Match>::Some(self.groups.get(index - 1:usize))
+        return self.groups.get(index - 1:usize)
     }
 
     pub fn name(self, name: str) -> Option<Match> {
@@ -122,22 +121,19 @@ impl Regex {
         auto found = self.search_from(input, start_byte)
         if found.is_none() { return Option<Captures>::None }
         auto result = found.unwrap()
-        auto groups# = Vec<Match>::new()
-        auto participated# = Vec<bool>::new()
+        auto groups# = Vec<Option<Match>>::new()
         auto names# = Vec<string>::new()
         auto index# = 0:usize
         loop index < self.capture_count {
             auto start = result.captures.get(index * 2:usize)
             auto end = result.captures.get(index * 2:usize + 1:usize)
             if start < 0:i32 || end < 0:i32 {
-                groups#.push(Match(begin_byte = 0:usize, end_byte = 0:usize))
-                participated#.push(false)
+                groups#.push(Option<Match>::None)
             } else {
-                groups#.push(Match(
+                groups#.push(Option<Match>::Some(Match(
                     begin_byte = start as usize,
                     end_byte = end as usize
-                ))
-                participated#.push(true)
+                )))
             }
             auto name# = string::from("")
             auto state_index# = 0:usize
@@ -154,7 +150,6 @@ impl Regex {
         return Option<Captures>::Some(Captures(
             matched = result.matched,
             groups = cede groups,
-            participated = cede participated,
             names = cede names
         ))
     }
